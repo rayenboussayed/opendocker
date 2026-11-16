@@ -134,14 +134,14 @@ Uncomment one option in `docker-compose.yml`:
 
 Git identity and signing are inferred from the host: `~/.gitconfig` is mounted read-only at
 `/home/opencode/.gitconfig-host`, and the entrypoint reads `user.name`, `user.email` and `user.signingkey` from it
-when the corresponding `.env` values are unset (explicit `.env` values win). The host's `~/.ssh` is also mounted
-read-only **at the same absolute path**, and compose sets `HOST_HOME`, so the `signingkey` path in the host config
-resolves verbatim inside the container — absolute paths and `~` both work, no rewriting. This requires the keys to be
-readable by uid 1000 (host user uid 1000, the default on single-user machines). A host like this one (name/email plus
-`gpg.format = ssh` and `signingkey = ~/.ssh/….pub`) gets fully working commits signed with the same key — no `.env`
-entries needed. If your host has no `~/.gitconfig`, create one (`touch ~/.gitconfig`) or remove the mount in
-`docker-compose.yml`, otherwise the Docker daemon creates an empty directory at the source path. The `~/.ssh-host`
-copy is still made so the container's default `~/.ssh` works for ssh transport regardless of uid.
+when the corresponding `.env` values are unset (explicit `.env` values win). The host's `~/.ssh` is mounted
+read-only and copied into the container's `~/.ssh` with fixed ownership/permissions; the entrypoint then symlinks
+`$HOST_HOME/.ssh` (the host's original absolute path, with `HOST_HOME=${HOME}` set by compose) to that `~/.ssh`, so
+the `signingkey` path in the host config resolves verbatim inside the container — absolute paths and `~` both work on
+any uid, no path rewriting. A host like this one (name/email plus `gpg.format = ssh` and
+`signingkey = ~/.ssh/….pub`) gets fully working commits signed with the same key — no `.env` entries needed. If your
+host has no `~/.gitconfig`, create one (`touch ~/.gitconfig`) or remove the mount in `docker-compose.yml`, otherwise
+the Docker daemon creates an empty directory at the source path.
 
 GitHub, GitLab and Bitbucket host keys are pre-trusted. With `GIT_SIGNING_KEY` set, commits and tags are signed; add
 the same public key to GitHub as a **signing key** to see them marked "Verified".

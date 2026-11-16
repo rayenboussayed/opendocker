@@ -35,6 +35,17 @@ if [ "$(id -u)" = 0 ]; then
   done
   install_ssh_keys
   chown -R 1000:1000 "$H/.ssh"
+  # Expose the copied keys at the host's real path, so git (and the host's ~/.gitconfig
+  # signingkey, absolute or ~) finds them exactly where the host config expects.
+  case "${HOST_HOME:-}" in
+    ""|/) ;;
+    /*) if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
+          log "linked $HOST_HOME/.ssh -> $H/.ssh"
+        else
+          log "WARNING: could not link $HOST_HOME/.ssh - host signingKey paths will not resolve"
+        fi ;;
+    *) log "WARNING: HOST_HOME=$HOST_HOME is not an absolute path - ignoring" ;;
+  esac
   if [ -n "${SSH_AUTH_SOCK:-}" ]; then
     if [ ! -S "$SSH_AUTH_SOCK" ]; then
       log "SSH_AUTH_SOCK=$SSH_AUTH_SOCK is not a socket - ignoring"; unset SSH_AUTH_SOCK
@@ -66,8 +77,8 @@ if [ -f "$hostcfg" ]; then
   if [ -z "${GIT_USER_NAME:-}" ];  then GIT_USER_NAME="$(git config --file "$hostcfg" user.name      2>/dev/null || true)";  from_host=1; fi
   if [ -z "${GIT_USER_EMAIL:-}" ]; then GIT_USER_EMAIL="$(git config --file "$hostcfg" user.email    2>/dev/null || true)"; from_host=1; fi
   if [ -z "${GIT_SIGNING_KEY:-}" ]; then GIT_SIGNING_KEY="$(git config --file "$hostcfg" user.signingkey 2>/dev/null || true)"; from_host=1; fi
-  # Host ~/.gitconfig may use absolute paths or ~ for the signing key; the host's ~/.ssh is mounted
-  # at the same absolute path (readonly) and HOST_HOME is set by compose, so no rewriting is needed.
+  # Host ~/.gitconfig may use ~ for the signing key; the entrypoint links $HOST_HOME/.ssh to $H/.ssh,
+  # so both absolute host paths and this expansion resolve to the container's copy verbatim.
   case "${GIT_SIGNING_KEY:-}" in
     '~/'*) if [ -n "${HOST_HOME:-}" ]; then GIT_SIGNING_KEY="${HOST_HOME}${GIT_SIGNING_KEY#'~'}"; fi ;;
   esac
