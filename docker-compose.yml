@@ -1,0 +1,44 @@
+name: opencode-docker
+
+services:
+  opencode:
+    build:
+      context: .
+      args: [NODE_TAG, OPENCODE_VERSION, PACKAGES, NPM_PACKAGES, PIP_PACKAGES]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Lets the entrypoint expand `~` in host git paths (e.g. signingKey) to the host's home
+      - HOST_HOME=${HOME}
+    ports:
+      - "127.0.0.1:${OPENCODE_PORT:-4001}:4000"
+    volumes:
+      - opencode-config:/home/opencode/.config/opencode
+      - opencode-data:/home/opencode/.local/share/opencode
+      - opencode-workspace:/home/opencode/workspace
+      - opencode-cache:/home/opencode/.cache
+      - ~/.ssh:/home/opencode/.ssh-host:ro
+      # Git identity and SSH signing key, inferred from the host's ~/.gitconfig (read-only).
+      # Optional: .env values (GIT_USER_NAME / GIT_USER_EMAIL / GIT_SIGNING_KEY) take precedence.
+      - ~/.gitconfig:/home/opencode/.gitconfig-host:ro
+      # Same-path mount: the signingKey path in the host's ~/.gitconfig (e.g. /home/you/.ssh/key.pub)
+      # resolves unchanged inside the container, so git points straight at the host's keys. Uses the
+      # read-only copy; requires the files to be readable by uid 1000 (host user uid 1000, or 640/644).
+      - ${HOME}/.ssh:${HOME}/.ssh:ro
+      # Universal (machine-wide) config: grants every tool for every project.
+      # Mounts over the image's /etc/opencode/opencode.json - edit ./opencode.json and restart to change.
+      - ./opencode.json:/etc/opencode/opencode.json:ro
+      # - ${SSH_AUTH_SOCK}:/ssh-agent
+      # - /run/host-services/ssh-auth.sock:/ssh-agent
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, KILL, AUDIT_WRITE]
+    pids_limit: 4096
+    mem_limit: 8g
+    restart: unless-stopped
+
+volumes:
+  opencode-config:
+  opencode-data:
+  opencode-workspace:
+  opencode-cache:
