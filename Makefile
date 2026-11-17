@@ -1,3 +1,4 @@
+SUDO         ?= sudo
 DOCKER       = $(shell docker info >/dev/null 2>&1 && echo docker || echo $(SUDO) docker)
 BUILD_FLAGS ?= --pull --no-cache
 COMPOSE      = -f docker-compose.yml -f docker-compose.mcp.yml

@@ -11,7 +11,7 @@ services:
     environment:
       # Lets the entrypoint link $HOST_HOME/.ssh -> ~/.ssh inside the container,
       # so the signingkey path from the host's ~/.gitconfig resolves verbatim
-      - HOST_HOME=${HOME}
+      - HOST_HOME=${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}
     ports:
       - "127.0.0.1:${OPENCODE_PORT:-4001}:4000"
     volumes:
@@ -19,12 +19,13 @@ services:
       - opencode-data:/home/opencode/.local/share/opencode
       - opencode-workspace:/home/opencode/workspace
       - opencode-cache:/home/opencode/.cache
-      - ~/.ssh:/home/opencode/.ssh-host:ro
+      # Host SSH keys: composed from HOME or USERPROFILE so it works without a HOME env var
+      - "${HOME:-${USERPROFILE:-~}}/.ssh:/home/opencode/.ssh-host:ro"
       # Git identity and SSH signing key, inferred from the host's ~/.gitconfig (read-only).
       # Optional: .env values (GIT_USER_NAME / GIT_USER_EMAIL / GIT_SIGNING_KEY) take precedence.
       # The entrypoint also links $HOST_HOME/.ssh -> ~/.ssh (the copy made from .ssh-host), so the
       # signingkey path from the host config resolves verbatim - no same-path mount needed.
-      - ~/.gitconfig:/home/opencode/.gitconfig-host:ro
+      - "${HOME:-${USERPROFILE:-~}}/.gitconfig:/home/opencode/.gitconfig-host:ro"
       # Universal (machine-wide) config: grants every tool for every project.
       # Mounts over the image's /etc/opencode/opencode.json - edit ./opencode.json and restart to change.
       - ./opencode.json:/etc/opencode/opencode.json:ro

@@ -1,0 +1,7 @@
+# Build context hygiene + secrets safety
+.git
+.env
+*.tgz
+.github
+tests
+node_modules

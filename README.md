@@ -79,6 +79,35 @@ To use the OpenCode terminal client against the container's server:
 docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 ```
 
+## Supported platforms
+
+| Platform | Status |
+|---|---|
+| Linux (Debian/Ubuntu, amd64 + arm64) | Primary. Built and tested on amd64 |
+| macOS (Intel & Apple Silicon) with Docker Desktop | Works; all images are multi-arch (arm64 native) |
+| Windows with Docker Desktop | Works; WSL2 backend recommended. The Makefile needs GNU make (`winget install GnuWin32.Make`) — or use the compose commands below, which are the portable path |
+
+Portable commands (any OS):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml build
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
+```
+
+Cross-platform notes:
+
+- **Line endings are pinned to LF** via `.gitattributes` — a CRLF checkout on Windows would break the
+  `entrypoint.sh` shebang. If you ever cloned with `core.autocrlf=true`, run `git add --renormalize .`.
+- **Home directory detection.** `~/.ssh` and `~/.gitconfig` are mounted using `HOME` on Linux/macOS and
+  fall back to `USERPROFILE` on Windows. Set `HOST_HOME` in `.env` to override explicitly.
+- **Git paths in `~/.gitconfig`.** Git Bash on Windows uses `~/.ssh/...`, which resolves inside the container.
+  A `C:\Users\…\.ssh\….pub` signingkey path can't exist in a Linux container — commits will still work, just
+  unsigned (a warning is printed). Use `GIT_SIGNING_KEY=key::ssh-ed25519 AAAA…` to sign with any host layout.
+- **Docker Desktop file sharing.** No extra setup needed for your home directory or the project folder (both are
+  shared by default). The build context excludes `.env` and `.git` via `.dockerignore`.
+- **`make` on Windows.** Not required if you use the compose commands above; `make run`, `make down`, etc. are the
+  POSIX-shell convenience wrapper.
+
 ## Root access and isolation
 
 The agent runs as the user `opencode` and can use `sudo` without a password. The compose file keeps that root inside
@@ -229,7 +258,7 @@ Only Docker is needed. Every container runs with the compose file's restricted c
 
 ## Known limitations
 
-- Only built and tested on amd64.
+- Built and tested on amd64; arm64 images are published for the base image and all `mcp/*` servers, so Apple Silicon should work but is untested.
 - Debian's `gh` is version 2.46, which is older; `yq` is the jq-syntax tool (kislyuk/yq), not mikefarah/yq.
 - Packages the agent installs with `sudo apt-get` disappear when the container is recreated; add them to `PACKAGES`.
 - `docker compose exec` opens a root shell; add `-u opencode` to act as the agent.
