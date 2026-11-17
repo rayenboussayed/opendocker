@@ -1,69 +1,298 @@
-# Container environment
+# Agent environment
 
-You are running inside an isolated Docker container (Debian stable), not directly on the user's computer.
+You are working in a ready-to-use Debian development environment with Node.js, Python, git/GitHub tooling and preconfigured MCP servers. This file is machine-wide guidance; follow it unless the user says otherwise.
 
-## Access
+Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — read this file before touching either.
 
-- You run as the user `opencode` and have passwordless root through `sudo`, e.g. `sudo apt-get install -y <package>`.
-- Root is confined to this container. There is no Docker socket, the host's files are not visible except for the
-  mounted volumes, and kernel privileges are restricted (no mounting, no raw sockets or packet capture, no device
-  access, no namespaces or chroot). Don't try to work around these limits; tell the user if a task needs them.
+## Workspace & persistence
 
-## What persists
-
-- Kept across restarts and rebuilds: `~/workspace` (keep all projects here), `~/.config/opencode`,
+- Keep projects in `~/workspace` — it persists across restarts and rebuilds, together with `~/.config/opencode`,
   `~/.local/share/opencode` and `~/.cache`.
-- Lost when the container is recreated: everything else, including packages installed with `sudo apt-get`, global
-  `npm`/`pip` installs and changes outside the paths above. If a project permanently needs a system
-  package, tell the user to add it to `PACKAGES` in their `.env` and rebuild the image.
+- Everything else — system packages installed with `sudo apt-get`, global npm/pip installs, files you create outside the
+  paths above — is lost when the environment is recreated.
+- If a project permanently needs a system package, ask the user to add it to `PACKAGES` in their `.env` and rebuild.
+- Prefer project-local dependencies (`package.json`, a virtualenv) over global installs.
 
 ## Tools
 
 - Available: Node.js with npm/npx, Python with pip and venv, FFmpeg (`ffmpeg`, `ffprobe`, `ffplay`), git, git-lfs, gh,
-  jq, yq, ripgrep (`rg`), fd, sqlite3, curl, make. Compilers are not installed; use `sudo apt-get install -y build-essential` when something needs building.
+  jq, yq, ripgrep (`rg`), fd, sqlite3, curl, make, nano/vim.
+- You run as the `opencode` user with passwordless `sudo`. Use it only for what needs root (e.g. `sudo apt-get install -y <pkg>`); don't use it for `npm`/`pip`.
+- No compilers by default: `sudo apt-get install -y build-essential` when something needs building.
 - `yq` is the jq-syntax YAML tool: queries use jq syntax and output JSON unless you add `-y`.
 - Node.js is built with pointer compression: about half the memory, but each process's heap is limited to 4 GB.
   N-API native addons work; addons using the older NAN API (e.g. `better-sqlite3`) can crash. Prefer an N-API
   alternative, or rebuild them with `rebuild-nan-addons` after installing `build-essential`.
-- Prefer project-local dependencies (`package.json`, a virtualenv) over global installs.
-- `npm install -g` and `pip install` work without sudo and install into `~/.local`. Don't use sudo for them.
+- `npm install -g` and `pip install` work without sudo and install into `~/.local`.
 
 ## Git
 
-- The git identity, SSH keys or SSH agent, and commit signing are set up by the container at startup. Don't change
-  `user.name`, `user.email`, `user.signingkey`, `commit.gpgsign` or `~/.ssh` unless the user asks.
-- Don't push, force-push or rewrite published history unless the user asks.
-- `gh` is authenticated only when the user provides a `GH_TOKEN`.
+### Identity
+
+- `user.name` / `user.email` come from `GIT_USER_NAME` / `GIT_USER_EMAIL` in `.env` if set, otherwise from the host's
+  `~/.gitconfig`. If neither is set, commits fail with "Please tell me who you are".
+- Never invent or guess an identity. If it is missing, tell the user; the fix is `.env` (`GIT_USER_NAME`, `GIT_USER_EMAIL`)
+  or the host's git config.
+- New repositories default to branch `main`; `safe.directory=*` is already configured, so "dubious ownership" errors
+  should not occur.
+- git-lfs is installed and initialized system-wide.
+
+### Remote protocol
+
+- GitHub remotes use SSH (`git@github.com:owner/repo.git`) by default; SSH keys are preconfigured (see next section).
+- Avoid `https://github.com/...` remotes unless the user asked: without `GH_TOKEN`, HTTPS fails with an authentication
+  error. To switch an existing repo to SSH: `git remote set-url origin git@github.com:owner/repo.git`.
+- If `GH_TOKEN` is set, HTTPS to github.com also works via the `gh` credential helper; SSH remains the default.
+
+### Do not change
+
+- Don't touch `user.name`, `user.email`, `user.signingkey`, `commit.gpgsign`, `tag.gpgsign`, `gpg.format` or anything
+  in `~/.ssh` unless the user asks.
+- Don't push, force-push, delete branches/tags, or rewrite published history unless the user asks.
+- If something already pushed needs rewriting (amend, rebase, force-push): ask the user first.
 
 ## SSH
 
-SSH is preconfigured. Use it; don't reconfigure it unless the user asks.
+SSH is preconfigured. Use it as-is; don't reconfigure it unless the user asks.
 
-- **Where the keys come from:** the host's `~/.ssh` is mounted read-only at `~/.ssh-host` and copied into `~/.ssh`
-  at startup, with fixed ownership (1000:1000) and permissions (private keys 600, `.pub`/`known_hosts` 644). Directories
-  and `authorized_keys` / `environment` are not copied. The copy is refreshed on every container start, so host-side
-  key changes only show up after a restart.
-- **Path compatibility:** the entrypoint also symlinks `$HOST_HOME/.ssh` (the host's original home path, set by
-  compose) to `~/.ssh`, so the `signingkey` path in the host's `~/.gitconfig` — absolute or `~/.ssh/...` — resolves
-  to the same keys inside this container.
-- **Pre-trusted hosts:** github.com, gitlab.com and bitbucket.org host keys live in `/etc/ssh/ssh_known_hosts`.
-  `ssh -T git@github.com` and `git clone`/`git push` over SSH work without prompts. Any other host is untrusted;
-  tell the user if a new host needs to be trusted rather than bypassing host key checking.
-- **Identity and signing:** `user.name` and `user.email` come from the host's `~/.gitconfig` (mounted at
-  `~/.gitconfig-host`); explicit `GIT_USER_NAME` / `GIT_USER_EMAIL` in `.env` win. Commit and tag signing use
-  `gpg.format=ssh` with `user.signingkey` from `.env` (`GIT_SIGNING_KEY`) or from the host config. `~/.config/git/allowed_signers`
-  is rebuilt at startup from the key in use. To sign via the agent instead of a key file, set `GIT_SIGNING_KEY=agent`
-  (uses the first key the agent offers).
-- **ssh-agent:** if the user forwards an agent (socket mounted at `/ssh-agent`, `SSH_AUTH_SOCK=/ssh-agent` in `.env`),
-  ssh and git use it for transport. If the socket can't be used by uid 1000 directly, the entrypoint relays it through
-  `socat` and points `SSH_AUTH_SOCK` at the relay.
-- **One-shot keys:** `SSH_PRIVATE_KEY` in `.env` installs a pasted private key as `~/.ssh/id_ed25519` (or `id_rsa` /
-  `id_ecdsa`, guessed from the key type); its `.pub` is derived automatically.
-- **Hygiene:** private keys live in `~/.ssh` only as far as this container goes. Don't `cat`, copy or print key
-  contents, and don't `ssh-copy-id` or distribute them anywhere. If a task seems to need a different key or host,
-  ask the user.
-- **Testing SSH:** `ssh -T git@github.com` (authentication), `git log --show-signature` (an SSH-signed commit),
-  `ssh-add -l` (an agent's keys). Diagnosis before acting: `ssh -vvv -T git@github.com` if something fails.
+### Where the keys come from
+
+- At every start, the host's `~/.ssh` is copied into `~/.ssh` (read-only source at `~/.ssh-host`). Permissions are fixed:
+  `~/.ssh` is 700, private keys 600, `*.pub` / `known_hosts*` 644.
+- The copy is refreshed at every start: key changes made on the host appear after a restart. Files added to `~/.ssh`
+  here are lost when the environment is recreated and never reach the host.
+- The host's `~/.ssh/config` is copied too (it is a file): host aliases (e.g. `git@github-work:org/repo.git`),
+  `IdentityFile`, etc. are honored. Directories, `authorized_keys` and `environment` are deliberately not copied.
+- A `$HOST_HOME/.ssh` symlink points at the copied `~/.ssh`, so a `user.signingkey` path from the host's git config —
+  absolute, or `~/.ssh/...` — resolves verbatim to the copied keys.
+- `~/.ssh-host` is read-only: you cannot change the host's keys from here.
+
+### Pre-trusted hosts
+
+- `github.com`, `gitlab.com` and `bitbucket.org` host keys are pre-trusted (all key types, in `/etc/ssh/ssh_known_hosts`).
+  SSH to these works without prompts.
+- To double-check a fingerprint against an official source, compare with GitHub's page:
+  https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+- Any other host is untrusted. Never bypass host key checking (`StrictHostKeyChecking=no` or equivalent). If a task
+  needs a new host, tell the user: the fix is on the host (add its host key to the host's `known_hosts`), then restart
+  so the refreshed copy is picked up.
+
+### ssh-agent
+
+- If the user forwards an agent (socket mounted at `/ssh-agent`, `SSH_AUTH_SOCK=/ssh-agent` in `.env`, with the two
+  socket lines in `docker-compose.yml` uncommented), ssh and git use it for transport, and for signing with
+  `GIT_SIGNING_KEY=agent`.
+- If the socket can't be used by your uid directly, it is relayed automatically and `SSH_AUTH_SOCK` points at the relay.
+- `ssh-add -l` lists the keys the agent offers.
+- Without an agent, key files in `~/.ssh` are used directly. Passphrase-protected keys prompt — which fails in
+  non-interactive sessions. Use agent forwarding (ask the user to enable it) or an unprotected key; never try to
+  decrypt or bypass the passphrase.
+
+### One-shot key install
+
+- `SSH_PRIVATE_KEY` in `.env` installs the pasted key as `~/.ssh/id_ed25519` (or `id_rsa` / `id_ecdsa`, guessed from
+  the key type) at every start; the matching `.pub` is derived automatically (for unprotected keys). This is the
+  sanctioned way to add a key via `.env`. Don't paste keys anywhere else.
+
+### Hygiene
+
+- Never `cat`, print, copy or exfiltrate private keys. Never `ssh-copy-id`. Never add keys to servers or to the agent
+  yourself. Never relax permissions on `~/.ssh`.
+- If a task seems to need a different key, a new host, or an added key, ask the user.
+
+### Diagnosing SSH
+
+- `ssh -T git@github.com` — exit code 1 with "Hi <name>! You've successfully authenticated, but GitHub does not provide
+  shell access." means **success** (GitHub doesn't offer shell access).
+- `git clone`/`git push` hanging or prompting means there is no usable key: check `ls -l ~/.ssh` (names and permissions
+  only) and `ssh-add -l`.
+- Verbose trace when anything is unclear: `ssh -vvv -T git@github.com`.
+- Fingerprint of a public key: `ssh-keygen -lf ~/.ssh/<name>.pub`.
+- Effective config: `ssh -G github.com | grep -iE '^(hostname|user|identityfile|port)'` and
+  `git config --list --show-origin`.
+
+## GitHub CLI (gh)
+
+- `gh` is preinstalled. It authenticates from the environment, independently of SSH: set `GH_TOKEN` (or `GITHUB_TOKEN`;
+  `GH_TOKEN` wins) in `.env`. `.env` is read only when the environment is created, so the change takes effect only
+  after the user recreates it (`make run`, or `down`/`up`).
+- With `GH_TOKEN` set, git is also configured to authenticate HTTPS to github.com through `gh`
+  (`credential.https://github.com.helper=!gh auth git-credential`), so HTTPS remotes work too. SSH remains the default.
+- `gh auth status` shows the token source (it will report the environment variable, not a stored login). A token from
+  the environment takes precedence over any stored credential.
+- Don't rely on `gh auth login`: `~/.config/gh` is not persisted and `make run` recreates the environment, so an
+  interactive login evaporates. `GH_TOKEN` in `.env` is the durable path.
+- Useful non-interactive commands: `gh repo view`, `gh pr create`, `gh pr list`, `gh pr view`, `gh pr diff`,
+  `gh pr checks`, `gh issue list`, `gh api <endpoint>`. `GH_PROMPT_DISABLED=1` disables prompts in scripts.
+- GitHub Enterprise Server: `GH_ENTERPRISE_TOKEN` (checked before `GITHUB_ENTERPRISE_TOKEN`) and `GH_HOST`.
+- Without `GH_TOKEN`: SSH git still works fully; `gh` and git-over-HTTPS for github.com do not. Tell the user rather
+  than creating tokens yourself.
+- `gh` can only reach what its token scopes allow. Treat the token as least-privilege; don't ask for broader scopes
+  than the task needs.
+
+## Commit & tag signing (SSH signing)
+
+Signing with SSH keys (no GPG) is enabled automatically when a signing key resolves. At start the environment sets
+`gpg.format=ssh`, `commit.gpgsign=true`, `tag.gpgsign=true`, and rebuilds `~/.config/git/allowed_signers` from the key
+in use (git is pointed at it via `gpg.ssh.allowedSignersFile`).
+
+### Which key signs
+
+In order: `GIT_SIGNING_KEY` from `.env`, otherwise `user.signingkey` from the host's `~/.gitconfig`. Accepted forms:
+
+- a path to a private key (a sibling `<name>.pub` is used for the signers file): `~/.ssh/<name>` or absolute
+- a path to a `.pub` file (signs via the agent if the key is in the agent, otherwise via the private key file at the same basename)
+- a raw public key (`ssh-ed25519 AAAA…`, `ecdsa-…`, `sk-ssh-…`), optionally prefixed as `key::<pub>`
+- the word `agent` — signs with the first key the agent offers (requires the forwarded agent)
+
+If the public key is in the agent, signing goes through the agent (no passphrase needed); otherwise the private key
+file is used.
+
+### Verify your own commits and tags
+
+- `git log --show-signature -1` → expect `Good "git" signature` and a principal line matching your `user.email`.
+- `git verify-commit <sha>` / `git verify-tag <tag>`.
+- "Good" signature but "No principal matched" or an unreadable `allowed_signers`: the allow-list is rebuilt at every
+  start from the key in use. Ask the user to recreate the environment, then check
+  `git config --get gpg.ssh.allowedSignersFile`.
+- Quick sanity check of what is configured:
+  `git config --get gpg.format; git config --get user.signingkey; git config --get commit.gpgsign; git config --get tag.gpgsign`
+
+### "Verified" on GitHub
+
+- Locally-good signatures are not automatically "Verified" on GitHub. For the badge:
+  1. the same SSH key must be uploaded to GitHub as a **Signing Key** (Settings → SSH and GPG keys → New SSH key →
+     type: Signing Key) — separate from the authentication key;
+  2. the committer email must be an email GitHub can match to the account.
+- If the badge is missing, the fix is on GitHub's side. Don't change local signing or identity config to force it.
+- Signed tags: `git tag -s -a v1.0.0 -m "v1.0.0"` (automatic with `tag.gpgsign=true`), push with
+  `git push origin v1.0.0`, verify with `git verify-tag v1.0.0`.
+
+### Failure handling
+
+- If the signing key cannot be resolved, the environment logs a warning and commits stay unsigned. Don't work around
+  it: fix `GIT_SIGNING_KEY` / the host config, or tell the user.
+- Never use `--no-gpg-sign` or `--no-verify` to make a failing commit pass, unless the user explicitly asks.
+- Don't reconfigure signing to make something work; report it instead.
+
+## Cookbook
+
+- Clone: `git clone git@github.com:owner/repo.git`
+- Start work: `git switch -c fix/thing` → edit → `git add -p` → `git commit -m "…"` (signing is automatic) →
+  `git push -u origin fix/thing`
+- Before pushing: `git status`, `git diff`, `git log --show-signature -3`
+- Open/inspect a PR: `gh pr create --fill`, `gh pr view`, `gh pr diff`, `gh pr checks`
+- Signed release tag: `git tag -s -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3 && git verify-tag v1.2.3`
+- Sync: `git fetch --prune`, then rebase or merge per the repo's convention
+- Amend only before pushing; after a push, make a new commit
+- Presence of a token without printing it: `[ -n "$GH_TOKEN" ] && echo "gh token: set" || echo "gh token: unset"`
+- Full picture of effective config: `git config --list --show-origin`
+
+## FAQ
+
+**Q: How do I authenticate to GitHub?**
+A: For git (clone/push/fetch): the SSH keys already in `~/.ssh`. For `gh`: set `GH_TOKEN` in `.env`, then ask the user
+to recreate the environment. Don't create tokens yourself.
+
+**Q: Why does `ssh -T git@github.com` exit with code 1?**
+A: That is success against GitHub — it means the key was accepted; GitHub just doesn't provide shell access.
+
+**Q: `Permission denied (publickey)` on clone/push — checklist?**
+A: 1) `ssh -T git@github.com` to separate SSH auth from git. 2) `ls -l ~/.ssh` — are the key files present with sane
+permissions (600/644)? 3) `ssh-add -l` — is an agent offering keys? Without one, git falls back to key files, which
+prompts for passphrases and fails non-interactively. 4) Is the remote URL SSH (`git remote -v`)? 5) If local checks
+pass, the key may not be attached to the account — ask the user.
+
+**Q: Why can't I clone this `https://github.com/...` URL?**
+A: Git-over-HTTPS needs credentials. Either set `GH_TOKEN` (enables the `gh` credential helper for github.com), or
+switch the remote to SSH: `git remote set-url origin git@github.com:owner/repo.git`.
+
+**Q: Does `gh` work? How do I check?**
+A: `gh auth status` — it reports the token source. "not logged into any hosts" means `GH_TOKEN` is missing/expired;
+tell the user. Don't rely on `gh auth login` — it doesn't persist across recreation.
+
+**Q: I changed `.env`. Why is nothing different?**
+A: `.env` is read only at creation time. Ask the user to recreate (`make run` or compose `down`/`up`); the entrypoint
+re-runs then and rebuilds the environment (`~/.ssh`, git config, `allowed_signers`).
+
+**Q: My commit shows Unverified on GitHub though `git log --show-signature` is good.**
+A: The key must be uploaded to GitHub as a **Signing Key** (not the authentication key), and the commit email must be
+one GitHub can match to the account. Fix on GitHub's side; don't edit local signing config.
+
+**Q: `git log --show-signature` says "Good" but also "No principal matched".**
+A: `allowed_signers` is regenerated at every start from the key in use and git is pointed at it with
+`gpg.ssh.allowedSignersFile`. Ask the user to recreate the environment; then re-check
+`git config --get gpg.ssh.allowedSignersFile`.
+
+**Q: Are my commits and tags signed by default?**
+A: Yes, when a signing key resolves: `commit.gpgsign=true`, `tag.gpgsign=true`, `gpg.format=ssh`. Check with the
+one-liners under "Verify your own commits and tags".
+
+**Q: How do I sign a tag?**
+A: Tags are signed automatically once a signing key is configured: `git tag -s -a v1.0.0 -m "v1.0.0"`. Verify:
+`git verify-tag v1.0.0`.
+
+**Q: Which hosts are trusted for SSH? How do I add one?**
+A: github.com, gitlab.com, bitbucket.org only. For any other host, tell the user — `~/.ssh` here is rebuilt at start
+and `~/.ssh-host` is read-only, so the fix is on the host (add the key to the host's `known_hosts`), followed by a
+restart. Never bypass host key checking.
+
+**Q: Can I add my own SSH key?**
+A: Ask the user. The sanctioned mechanism is `SSH_PRIVATE_KEY` in `.env` (installed at start as
+`id_ed25519`/`id_rsa`/`id_ecdsa`). Never `ssh-copy-id` and never install keys on servers yourself.
+
+**Q: Why is my passphrase-protected key not working?**
+A: Non-interactive sessions can't answer the passphrase prompt. Either the user forwards an agent (socket at
+`/ssh-agent` + `SSH_AUTH_SOCK=/ssh-agent` in `.env` + recreate) or provides an unprotected key via `SSH_PRIVATE_KEY`.
+Don't try to decrypt or bypass it.
+
+**Q: Do I need to type a password to push?**
+A: With SSH remotes and keys in `~/.ssh`: no. With HTTPS to github.com and `GH_TOKEN` set: no (the credential helper
+supplies it). Otherwise git prompts and the push fails non-interactively — fix the remote or the token; don't guess.
+
+**Q: Why are there two keys in `~/.ssh`?**
+A: Common host setups keep an authentication key and a signing key. Transport identity and signing identity are
+independent: git transport uses the keys in `~/.ssh` (or the agent); commit signing uses `user.signingkey` (from
+`.env` or the host config) or `GIT_SIGNING_KEY=agent`.
+
+**Q: Can I use different GitHub accounts per repo (work vs personal)?**
+A: Yes, if the host's `~/.ssh/config` defines aliases (e.g. `github.com-work`) — it is copied at start. Use the alias
+in the remote: `git@github.com-work:org/repo.git`, and scope the signing key with `GIT_SIGNING_KEY`. If no alias
+exists, ask the user to add one on the host.
+
+**Q: I got a "dubious ownership" error.**
+A: `safe.directory=*` is configured at start; this shouldn't happen. Report it instead of editing config.
+
+**Q: Can I amend/rebase/force-push something I already pushed?**
+A: Ask the user first. Amending unpushed commits is fine.
+
+**Q: `git lfs`?**
+A: Installed and initialized system-wide; `git lfs pull|push|track` work as usual.
+
+**Q: Which hosts does git's HTTPS credential helper cover?**
+A: Only github.com, and only when `GH_TOKEN`/`GITHUB_TOKEN` is set (`credential.https://github.com.helper=!gh auth git-credential`).
+Other hosts use SSH or nothing.
+
+**Q: Something is broken — where do I look first?**
+A: In order: `~/.ssh` permissions → `ssh -T git@github.com` → `ssh-add -l` → `git config --list --show-origin` →
+`git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
+warnings), ask the user to run `docker compose logs opencode | grep entrypoint` — you can't run Docker commands here.
+
+## Ask the user first
+
+- Pushing to repositories you didn't create, merging/closing PRs or issues, publishing releases
+- Force-push, rebase of published branches, deleting branches or tags
+- Adding trusted SSH hosts, using a key not in `~/.ssh`, generating new keys
+- Changing git identity, signing configuration or anything in `.env`
+- Making any repository public/private, changing tokens or scopes
+
+## Never
+
+- Print, `cat`, copy or exfiltrate private keys or tokens; `ssh-copy-id`; add keys to servers yourself
+- Relax permissions on `~/.ssh` (700 / 600 / 644)
+- Disable host key checking, or bypass commit/tag signing with `--no-gpg-sign` / `--no-verify` without explicit instruction
+- Commit `.env`, `.env.mcp` or any file containing secrets
+- Invent an identity, email or signing key
 
 ## MCP
 
@@ -77,16 +306,16 @@ MCP servers are configured as remote servers in the system config. The mandatory
 
 No authentication on `docker-gateway` or `gh_grep`; they are reachable only on loopback and the internal compose network
 (except for outbound requests they make). The gateway connects when the MCP stack is running; if it shows as
-disconnected, ask the user to start it (`make run`, or `./prepare-mcp-secrets.sh && docker compose -f docker-compose.yml -f
-docker-compose.mcp.yml up -d mcp-gateway`) rather than editing the configuration.
+disconnected, ask the user to start it (`make run`, or `docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d
+mcp-gateway`) rather than editing the configuration.
 
-`.env` is the source of truth for MCP keys; `make run` generates the ignored, chmod-600 `mcp-secrets.env` for the
-gateway. Do not create or edit `mcp-secrets.env` directly. GitHub Official can write to repositories the token can
+`.env.mcp` is the MCP-only catalog credential file; it is ignored and should remain chmod 600. It is not passed to
+OpenCode and must not contain application secrets such as `OPENCODE_API_KEY`. GitHub Official can write to repositories the token can
 reach, and agent permissions are allow-all, so do not issue broader GitHub tokens than needed.
-
 
 ## Network
 
 - Internet access is available.
-- Only OpenCode's own port is published. Servers you start (dev servers, databases) are not reachable from the
-  user's browser unless the user publishes their port; say so when it matters.
+- The web UI is published on a single port (default 4000). Services you start (dev servers, databases) are not
+  reachable from elsewhere unless that port is published. If the user wants something reachable, tell them they need
+  to publish the port; you cannot do it yourself.
