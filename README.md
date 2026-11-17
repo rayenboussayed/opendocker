@@ -57,6 +57,8 @@ Everything goes in `.env`, and everything is optional.
 
 | Setting | Purpose |
 |---|---|
+| `MCP_GATEWAY_AUTH_TOKEN` | Shared bearer token for the MCP stack (`docker-compose.mcp.yml`) and for OpenCode to reach it. Generate with `openssl rand -hex 32` |
+| `MCP_GATEWAY_PORT`, `MCP_CHROME_DEVTOOLS_PORT` | Host ports for the MCP endpoints (defaults 8200, 8203) |
 | `OPENCODE_PASSWORD` | Password for the web UI and API (username `opencode`) |
 | `OPENCODE_PORT` | Host port (default 4000) |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from the host's `~/.gitconfig` |
@@ -109,6 +111,41 @@ can't be loosened by them. It allows every tool action (`permissions`: `action: 
 and keeps the `instructions` entry that loads `AGENTS.md`. Edit it and restart the container to change it — no rebuild
 needed. The same `opencode.json` is baked into the image as `/etc/opencode/opencode.json`, so the behavior doesn't
 depend on the mount.
+
+## MCP servers (optional)
+
+An optional MCP stack ships in `docker-compose.mcp.yml`. It runs MCP tool servers for the agent, published on
+`127.0.0.1` for this machine and reachable by the agent over the compose network:
+
+```bash
+openssl rand -hex 32        # put in .env as MCP_GATEWAY_AUTH_TOKEN
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
+```
+
+| Server | Container endpoint | Host endpoint | Backed by |
+|---|---|---|---|
+| Docker MCP Gateway | `http://mcp-gateway:8080/mcp` | `http://127.0.0.1:8200/mcp` | `docker/mcp-gateway` + 8 `mcp/*` images (Docker-built, cosign-verified by the gateway) |
+| Chrome DevTools MCP | `http://chrome-devtools:8000/mcp` | `http://127.0.0.1:8203/mcp` | `ghcr.io/puppeteer/puppeteer` + `npx chrome-devtools-mcp` (headless, no usage stats) behind `supergateway` |
+
+The gateway serves 57 tools: Playwright (23), Wikipedia (22), plus `sequentialthinking`, `fetch`, `time`,
+`duckduckgo`, `markitdown`, `next-devtools-mcp`. Chrome DevTools adds 33 more. Both endpoints need
+`Authorization: Bearer $MCP_GATEWAY_AUTH_TOKEN`.
+
+OpenCode is already wired to the two container endpoints in `opencode.json` (`mcp.servers.docker-gateway` and
+`mcp.servers.chrome-devtools`). When the stack is down they show as disconnected — harmless. From the host,
+clients must use the loopback URLs with the same token:
+
+```bash
+curl -s http://127.0.0.1:8200/mcp -X POST \
+  -H "Authorization: Bearer $MCP_GATEWAY_AUTH_TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Security notes:
+- Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` / `chrome-devtools` on the internal compose network.
+- The gateway mounts `/var/run/docker.sock` because it *is* the control plane spawning the `mcp/*` containers. The agent container never sees the socket.
+- `duckduckgo`, `wikipedia-mcp` and `next-devtools-mcp` are community-maintained (unofficial); the rest come from the original authors (Microsoft, Google, modelcontextprotocol). Browser MCPs can see and do anything the browser can — treat their output as untrusted input.
 
 ## AGENTS.md
 

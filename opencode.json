@@ -3,5 +3,21 @@
   "instructions": ["/etc/opencode/AGENTS.md"],
   "permissions": [
     { "action": "*", "resource": "*", "effect": "allow" }
-  ]
+  ],
+  "mcp": {
+    "servers": {
+      "docker-gateway": {
+        "type": "remote",
+        "url": "http://mcp-gateway:8080/mcp",
+        "oauth": false,
+        "headers": { "Authorization": "Bearer {env:MCP_GATEWAY_AUTH_TOKEN}" }
+      },
+      "chrome-devtools": {
+        "type": "remote",
+        "url": "http://chrome-devtools:8000/mcp",
+        "oauth": false,
+        "headers": { "Authorization": "Bearer {env:MCP_GATEWAY_AUTH_TOKEN}" }
+      }
+    }
+  }
 }
