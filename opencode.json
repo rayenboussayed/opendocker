@@ -10,11 +10,6 @@
         "type": "remote",
         "url": "http://mcp-gateway:8080/mcp",
         "oauth": false
-      },
-      "chrome-devtools": {
-        "type": "remote",
-        "url": "http://chrome-devtools:8000/mcp",
-        "oauth": false
       }
     }
   }

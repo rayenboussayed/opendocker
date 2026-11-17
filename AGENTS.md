@@ -67,16 +67,15 @@ SSH is preconfigured. Use it; don't reconfigure it unless the user asks.
 
 ## MCP
 
-MCP tool servers are (optionally) available on the compose network, configured as remote servers in the system
+An MCP tool server is (optionally) available on the compose network, configured as a remote server in the system
 config:
 
 - `docker-gateway` at `http://mcp-gateway:8080/mcp` — 57 tools: Playwright, Wikipedia, `sequentialthinking`, `fetch`,
   `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`.
-- `chrome-devtools` at `http://chrome-devtools:8000/mcp` — browser inspection (console, network, DOM, performance).
 
-Both endpoints are unauthenticated but reachable only on loopback and in the Docker network. They connect when the
-MCP stack is running; if they show as disconnected, ask the user to start it (`docker compose -f docker-compose.yml
--f docker-compose.mcp.yml up -d mcp-gateway chrome-devtools`) rather than editing the configuration.
+No authentication; reachable only on loopback and in the Docker network. It connects when the MCP stack is running;
+if it shows as disconnected, ask the user to start it (`docker compose -f docker-compose.yml -f
+docker-compose.mcp.yml up -d mcp-gateway`) rather than editing the configuration.
 
 ## Network
 

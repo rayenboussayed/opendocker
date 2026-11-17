@@ -123,15 +123,13 @@ docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 | Server | Container endpoint | Host endpoint | Backed by |
 |---|---|---|---|
 | Docker MCP Gateway | `http://mcp-gateway:8080/mcp` | `http://127.0.0.1:8200/mcp` | `docker/mcp-gateway` + 8 `mcp/*` images (Docker-built, cosign-verified by the gateway) |
-| Chrome DevTools MCP | `http://chrome-devtools:8000/mcp` | `http://127.0.0.1:8203/mcp` | `ghcr.io/puppeteer/puppeteer` + `npx chrome-devtools-mcp` (headless, no usage stats) behind `supergateway` |
 
-The gateway serves 57 tools: Playwright (23), Wikipedia (22), plus `sequentialthinking`, `fetch`, `time`,
-`duckduckgo`, `markitdown`, `next-devtools-mcp`. Chrome DevTools adds 33 more. No authentication — both endpoints are
-only on loopback and the internal compose network; don't publish them any wider without adding auth (or a proxy) back.
+The gateway serves 57 tools: Playwright (23, driving a real Chromium), Wikipedia (22), plus `sequentialthinking`,
+`fetch`, `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`. No authentication — the endpoint is only on
+loopback and the internal compose network; don't publish it any wider without adding auth (or a proxy) back.
 
-OpenCode is already wired to the two container endpoints in `opencode.json` (`mcp.servers.docker-gateway` and
-`mcp.servers.chrome-devtools`). When the stack is down they show as disconnected — harmless. Host-side clients use
-the loopback URLs with no token:
+OpenCode is already wired to the container endpoint in `opencode.json` (`mcp.servers.docker-gateway`). When the stack
+is down it shows as disconnected — harmless. Host-side clients use the loopback URL with no token:
 
 ```bash
 curl -s http://127.0.0.1:8200/mcp -X POST \
@@ -140,7 +138,7 @@ curl -s http://127.0.0.1:8200/mcp -X POST \
 ```
 
 Security notes:
-- Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` / `chrome-devtools` on the internal compose network. Host ports default to 8200/8203; override with `MCP_GATEWAY_PORT` / `MCP_CHROME_DEVTOOLS_PORT` in `.env` if needed.
+- Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` on the internal compose network. Host port defaults to 8200; override with `MCP_GATEWAY_PORT` in `.env` if needed.
 - The gateway mounts `/var/run/docker.sock` because it *is* the control plane spawning the `mcp/*` containers. The agent container never sees the socket.
 - `duckduckgo`, `wikipedia-mcp` and `next-devtools-mcp` are community-maintained (unofficial); the rest come from the original authors (Microsoft, Google, modelcontextprotocol). Browser MCPs can see and do anything the browser can — treat their output as untrusted input.
 
