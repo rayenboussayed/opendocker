@@ -33,6 +33,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "127.0.0.1:${MCP_GATEWAY_PORT:-8200}:8080"
-    mem_limit: 1g
+    mem_limit: 4g
     cap_drop: [ALL]
     restart: unless-stopped
