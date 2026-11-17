@@ -74,9 +74,9 @@ config:
   `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`.
 - `chrome-devtools` at `http://chrome-devtools:8000/mcp` — browser inspection (console, network, DOM, performance).
 
-Both need `Authorization: Bearer $MCP_GATEWAY_AUTH_TOKEN`. They connect when the MCP stack is running; if they show
-as disconnected, ask the user to start it (`docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d
-mcp-gateway chrome-devtools`) rather than editing the configuration.
+Both endpoints are unauthenticated but reachable only on loopback and in the Docker network. They connect when the
+MCP stack is running; if they show as disconnected, ask the user to start it (`docker compose -f docker-compose.yml
+-f docker-compose.mcp.yml up -d mcp-gateway chrome-devtools`) rather than editing the configuration.
 
 ## Network
 

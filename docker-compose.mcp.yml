@@ -6,8 +6,8 @@ name: opencode-docker
 #   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 #
 # Everything is published on 127.0.0.1 only, for access from this machine; the opencode container
-# reaches the same services over the compose network. Authentication for both endpoints is the
-# shared MCP_GATEWAY_AUTH_TOKEN from .env (Bearer). Generate one with: openssl rand -hex 32
+# reaches the same services over the compose network. No authentication: the endpoints are not
+# reachable from anywhere else on the host or the LAN.
 #
 # Servers come from Docker's MCP Catalog (mcp/* images, Docker-built, cosign-verified by the
 # gateway), except chrome-devtools-mcp, which is npm-only and has no Docker image; it runs in the
@@ -25,12 +25,12 @@ services:
       - --transport=streaming
       - --port=8080
       - --host=0.0.0.0
+      - --allow-unauthenticated
       # Per-server limits for the spawned containers (default: 1 CPU, 2 GB memory each)
       - --cpus=1
       - --memory=2Gb
     environment:
       DOCKER_MCP_IN_CONTAINER: "1"
-      MCP_GATEWAY_AUTH_TOKEN: ${MCP_GATEWAY_AUTH_TOKEN:?set MCP_GATEWAY_AUTH_TOKEN in .env (e.g. openssl rand -hex 32)}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
@@ -40,8 +40,7 @@ services:
     restart: unless-stopped
 
   # Chrome DevTools MCP (browser inspection/automation). Headless, isolated profile, no usage
-  # statistics, no CrUX API reporting. Supergateway bridges stdio -> Streamable HTTP (/mcp)
-  # behind the same token.
+  # statistics, no CrUX API reporting. Supergateway bridges stdio -> Streamable HTTP (/mcp).
   chrome-devtools:
     image: ghcr.io/puppeteer/puppeteer:latest
     command:
@@ -54,8 +53,6 @@ services:
       - streamableHttp
       - --port
       - "8000"
-      - --apiKey
-      - ${MCP_GATEWAY_AUTH_TOKEN:?set MCP_GATEWAY_AUTH_TOKEN in .env}
     volumes:
       # Persist the npx cache so server packages aren't re-downloaded on every start
       - npx-cache:/home/pptruser/.npm
