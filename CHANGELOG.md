@@ -1,0 +1,97 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+**No versioned release has been tagged yet.** Everything is listed under Unreleased. When you cut the first
+release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add the version links at the bottom.
+
+## [Unreleased]
+
+### Added
+
+- Rewritten `README.md` for non-technical users: plain-language explanation, per-platform install guides
+  (Windows, macOS, Linux), pros and cons, use cases and a troubleshooting section [1504b5e].
+- Rewritten `AGENTS.md` as a machine-wide guide for the agent: SSH/git/GitHub workflows, commit and tag signing,
+  signature verification, `gh` usage and a FAQ [1504b5e].
+- `CHANGELOG.md` (this file).
+- OpenCode Console and OpenCode Go documentation: `opencode/<model>` and `opencode-go/<model>` prefixes,
+  `OPENCODE_API_KEY` passing via `env_file`, saved `/connect` account precedence [0e74b9e].
+- Expanded MCP stack: local servers `sequentialthinking`, `playwright`, `fetch`, `time`, `duckduckgo`,
+  `markitdown`, `wikipedia-mcp`, `next-devtools-mcp`, `npm-sentinel`, `memory`, `aws-documentation`,
+  `github-official`; remote servers proxied by the gateway `context7`, `deepwiki`, `microsoft-learn`;
+  about 140 tools visible to the agent in total [0e74b9e] [cddb0a1].
+- `gh_grep` (public GitHub code search) and `cloudflare-docs` (direct remote) enabled by default;
+  `cloudflare-docs` points at `https://docs.mcp.cloudflare.com/mcp` [0e74b9e].
+- `memory` MCP server; its knowledge graph persists in the Docker-managed `claude-memory` volume, shared
+  across projects [0e74b9e].
+- OAuth-based MCP servers preconfigured but disabled by default (`"disabled": true`): `linear`, `notion`,
+  `atlassian`, `sentry`, `figma`, `supabase` (read-only), `neon` (read-only), `vercel`, `cloudflare`, `stripe`,
+  `posthog`, `eslint`, `astryx` [0e74b9e].
+- Initial `docker-compose.mcp.yml` with the Docker MCP Gateway, wired into the agent via `opencode.json` [91bd0de].
+- Universal config `opencode.json` mounted read-only at `/etc/opencode/opencode.json`: machine-wide, outranks
+  global and project configs, allows every tool action and loads `AGENTS.md` [2fe292c].
+- Docker image built from `platformatic/node-caged:slim` (Node.js 26) with OpenCode 2 installed from npm;
+  Python 3.13, FFmpeg, git, git-lfs, GitHub CLI, `sudo`, `jq`, `yq`, ripgrep, `fd`, `sqlite3` and more [2fe292c].
+- Host-based git setup: `~/.ssh` and `~/.gitconfig` mounted read-only, keys copied in at start with fixed
+  ownership and permissions, pre-trusted host keys for GitHub/GitLab/Bitbucket, `ssh_config` and
+  `ssh_known_hosts` baked into the image [2fe292c].
+- Resolve host `~/.gitconfig` signing paths inside the container via a symlinked `$HOST_HOME/.ssh` → `~/.ssh` [bef4b5c].
+- Named volumes for sessions, config, workspace and cache; port published on `127.0.0.1` only; resource limits
+  (4,096 processes, 8 GB memory) [2fe292c].
+- `Makefile` targets: `run`, `run-clean`, `build`, `down`, `clean` [2fe292c].
+- MCP stack included in the default flow: `make run` starts it alongside OpenCode; `make down` and
+  `make clean` handle both stacks [98c6ff9].
+
+### Changed
+
+- `.env` no longer holds MCP credentials: the gateway now mounts `./.env.mcp` directly, which is never passed
+  to the OpenCode container; `.env.mcp.example` is the tracked template; `.env.example` restored to the minimal
+  application settings [946ab2d].
+- MCP stack is mandatory in compose operations (`make run`/`build`/`down`/`clean` and plain compose invocations),
+  instead of an opt-in addition [98c6ff9].
+- Default web UI port changed from 4001 to 4000; MCP gateway memory limit raised to 4 GB [273ee8c].
+- Cross-platform support (Linux, macOS, Windows): LF line endings via `.gitattributes`, `HOME`/`USERPROFILE`
+  interpolation with `HOST_HOME` override, Docker Desktop/WSL2 guidance in the docs [9ace648].
+- `Makefile` `.PHONY` trimmed to the real targets (`run`, `run-clean`, `build`, `down`, `clean`) [946ab2d].
+- `websearch.provider` set to `random` (no credentials; see the `EXA_API_KEY` family of variables) [0e74b9e].
+
+### Removed
+
+- `prepare-mcp-secrets.sh` and the Makefile secrets target; the gateway reads `./.env.mcp` directly [946ab2d].
+- MCP bearer token on the gateway (loopback-only, not reachable from the LAN) [ed5290f].
+- Chrome DevTools MCP server (Playwright kept as the browser automation path) [51bd358].
+- Stale `make test` / `make docker` commands and the nonexistent `tests/` section from the docs [1504b5e].
+
+### Fixed
+
+- `.env.example` restored after being dropped by accident in the Makefile change [fe69e48].
+- `ssh_known_hosts` regenerated (github/gitlab/bitbucket) [273ee8c].
+
+### Security
+
+- The gateway runs with `cap_drop: [ALL]`, a 4 GB memory limit and publishes on `127.0.0.1` only; the Docker
+  socket is mounted into the gateway (its control plane) and never into the OpenCode container [91bd0de]
+  [0e74b9e] [946ab2d].
+- Gateway catalog servers are pinned to digests and signature-verified by the gateway; the agent container drops
+  all capabilities except those sudo, apt and the startup script need [2fe292c] [91bd0de].
+- `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
+- MCP endpoints are unauthenticated but bind to loopback only; direct remote endpoints enabled by default send
+  queries to Grep/grep.app, Cloudflare Docs, Context7, DeepWiki and Microsoft Learn [ed5290f] [0e74b9e].
+
+[unreleased]: https://github.com/rayenboussayed/opendocker/compare/2fe292c...HEAD
+[1504b5e]: https://github.com/rayenboussayed/opendocker/commit/1504b5edc5c234d833a9c5cd3de246ee7555c463
+[946ab2d]: https://github.com/rayenboussayed/opendocker/commit/946ab2d4043d69b9b1d9510c48d4b207ea921a97
+[0e74b9e]: https://github.com/rayenboussayed/opendocker/commit/0e74b9e40fb6b4e06b6e0d5afa8fe9bb7fc5ab48
+[273ee8c]: https://github.com/rayenboussayed/opendocker/commit/273ee8c3c5d3319e4d6febaad9a3519c8dfb03e1
+[cddb0a1]: https://github.com/rayenboussayed/opendocker/commit/cddb0a188d1eb8a9b4c482b14cf36cb1019296da
+[9ace648]: https://github.com/rayenboussayed/opendocker/commit/9ace648f1e3728629b96f1abc6220a8250f582cd
+[fe69e48]: https://github.com/rayenboussayed/opendocker/commit/fe69e489cdb0d787a743930784d9322c35441ede
+[98c6ff9]: https://github.com/rayenboussayed/opendocker/commit/98c6ff946b4239a4a3fea74caee568bcfd5af73d
+[51bd358]: https://github.com/rayenboussayed/opendocker/commit/51bd3581ab80e05eb19fc8db7fd3d73cd1b5ced8
+[ed5290f]: https://github.com/rayenboussayed/opendocker/commit/ed5290f67eec200b76a7eee50e5600b4d0ca9dda
+[91bd0de]: https://github.com/rayenboussayed/opendocker/commit/91bd0de49aa42fff7fe1a2e90d5b1b25f6a48ee6
+[bef4b5c]: https://github.com/rayenboussayed/opendocker/commit/bef4b5c9f7777b961eb786b48b7890974387c0a1
+[2fe292c]: https://github.com/rayenboussayed/opendocker/commit/2fe292c6543298a3aa7923f480bbdc897f23b055

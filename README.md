@@ -568,6 +568,7 @@ Sessions and workspace live in Docker volumes and survive `make clean`. To erase
 ## Learn more
 
 - [OpenCode docs](https://opencode.ai/docs/) — agents, models, MCP, skills, plugins
+- [Changelog](CHANGELOG.md) — what changed and when
 - [OpenCode Console](https://opencode.ai/console) — pay-as-you-go models and service accounts
 - [OpenCode Go](https://opencode.ai/console/go) — $10/month subscription
 - [Migration from OpenCode 1](https://opencode.ai/docs/migrate-v1)
