@@ -154,10 +154,10 @@ docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 
 | Server | Container endpoint | Host endpoint | Backed by |
 |---|---|---|---|
-| Docker MCP Gateway | `http://mcp-gateway:8080/mcp` | `http://127.0.0.1:8200/mcp` | `docker/mcp-gateway` + 8 `mcp/*` images (Docker-built, cosign-verified by the gateway) |
+| Docker MCP Gateway | `http://mcp-gateway:8080/mcp` | `http://127.0.0.1:8200/mcp` | `docker/mcp-gateway` + 9 `mcp/*` images (Docker-built, cosign-verified by the gateway) |
 
-The gateway serves 57 tools: Playwright (23, driving a real Chromium), Wikipedia (22), plus `sequentialthinking`,
-`fetch`, `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`. No authentication — the endpoint is only on
+The gateway serves 76 tools: Playwright (23, driving a real Chromium), Wikipedia (22), npm-sentinel (19), plus
+`sequentialthinking`, `fetch`, `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`. No authentication — the endpoint is only on
 loopback and the internal compose network; don't publish it any wider without adding auth (or a proxy) back.
 
 OpenCode is already wired to the container endpoint in `opencode.json` (`mcp.servers.docker-gateway`). When the stack

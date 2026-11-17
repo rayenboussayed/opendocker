@@ -19,7 +19,7 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     command:
-      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,wikipedia-mcp,markitdown,next-devtools-mcp
+      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,wikipedia-mcp,markitdown,next-devtools-mcp,npm-sentinel
       - --transport=streaming
       - --port=8080
       - --host=0.0.0.0
