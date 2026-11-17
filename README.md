@@ -17,11 +17,11 @@ password at every start; find it with `docker compose logs opencode | grep "serv
 
 | Command | What it does |
 |---|---|
-| `make run` | Starts OpenCode in the foreground, building the image only if it doesn't exist yet. Ctrl+C removes the container and keeps the image, so the next start is fast. |
+| `make run` | Starts OpenCode and the MCP stack in the foreground, building the image only if it doesn't exist yet. Ctrl+C removes the container and keeps the image, so the next start is fast. |
 | `make run-clean` | Builds fresh (latest base image, no cache), starts OpenCode, and on Ctrl+C removes the container and the image. |
 | `make build` | Builds fresh without starting. |
-| `make down` | Removes the container. |
-| `make clean` | Removes the container and the image. |
+| `make down` | Removes the OpenCode and MCP containers. |
+| `make clean` | Removes the OpenCode and MCP containers and the image. |
 | `make test` | Builds and runs the test suite. |
 | `make docker` | Optional, Linux only: installs or updates Docker Engine with Docker's official script. On Debian/Ubuntu it first removes conflicting distro packages, as Docker's docs require. |
 
@@ -111,12 +111,15 @@ and keeps the `instructions` entry that loads `AGENTS.md`. Edit it and restart t
 needed. The same `opencode.json` is baked into the image as `/etc/opencode/opencode.json`, so the behavior doesn't
 depend on the mount.
 
-## MCP servers (optional)
+## MCP servers
 
-An optional MCP stack ships in `docker-compose.mcp.yml`. It runs MCP tool servers for the agent, published on
+An MCP stack ships in `docker-compose.mcp.yml` and is part of the default flow: `make run` (and every plain `docker
+compose` command via two `-f` files) starts it alongside OpenCode. It runs MCP tool servers for the agent, published on
 `127.0.0.1` for this machine and reachable by the agent over the compose network:
 
 ```bash
+make run
+# or by hand:
 docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 ```
 
@@ -130,6 +133,8 @@ loopback and the internal compose network; don't publish it any wider without ad
 
 OpenCode is already wired to the container endpoint in `opencode.json` (`mcp.servers.docker-gateway`). When the stack
 is down it shows as disconnected — harmless. Host-side clients use the loopback URL with no token:
+
+The first start pulls the `mcp/*` images (a few GB); subsequent starts reuse them. Docker's MCP Gateway signature-verifies them against Docker's keyring.
 
 ```bash
 curl -s http://127.0.0.1:8200/mcp -X POST \

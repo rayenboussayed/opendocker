@@ -1,7 +1,7 @@
 name: opencode-docker
 
-# Optional MCP stack for OpenCode. Use it together with the main compose file so both share one
-# project and one network (the agent then reaches these services by name):
+# MCP stack for OpenCode. Included in the default flow (make run / make down) and in plain compose
+# commands via -f docker-compose.mcp.yml; not optional with the Makefile:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 #

@@ -74,7 +74,7 @@ config:
   `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`.
 
 No authentication; reachable only on loopback and in the Docker network. It connects when the MCP stack is running;
-if it shows as disconnected, ask the user to start it (`docker compose -f docker-compose.yml -f
+if it shows as disconnected, ask the user to start it (`make run`, or `docker compose -f docker-compose.yml -f
 docker-compose.mcp.yml up -d mcp-gateway`) rather than editing the configuration.
 
 ## Network
