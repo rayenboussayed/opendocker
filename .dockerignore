@@ -1,6 +1,7 @@
 # Build context hygiene + secrets safety
 .git
 .env
+mcp-secrets.env
 *.tgz
 .github
 tests

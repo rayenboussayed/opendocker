@@ -9,7 +9,9 @@ name: opencode-docker
 # reaches the same services over the compose network. No authentication: the endpoints are not
 # reachable from anywhere else on the host or the LAN.
 #
-# Servers come from Docker's MCP Catalog (mcp/* images, Docker-built, cosign-verified by the gateway).
+# Servers come from Docker's MCP Catalog (mcp/* images, Docker-built, cosign-verified by the gateway,
+# plus catalog "remote" entries that the gateway proxies). Rule for this stack: anything the catalog
+# covers runs here; opencode.json only lists what the catalog lacks or what needs OAuth sign-in.
 
 services:
   # Docker MCP Gateway: runs the stdio servers as containers on this daemon and serves them all
@@ -19,20 +21,40 @@ services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
     command:
-      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,wikipedia-mcp,markitdown,next-devtools-mcp,npm-sentinel
+      # Local (containers):  sequentialthinking, playwright, markitdown, wikipedia-mcp,
+      #                      next-devtools-mcp, npm-sentinel, memory, aws-documentation,
+      #                      github-official (needs GITHUB_PERSONAL_ACCESS_TOKEN in .env)
+      # Remote (proxied):    context7 (optional CONTEXT7_API_KEY in .env), deepwiki, microsoft-learn
+      # Cloudflare Docs is configured directly in opencode.json because Docker's catalog entry
+      # points at the retired https://docs.mcp.cloudflare.com/sse endpoint (410 Gone).
+      # Optional, add to the list when needed: hugging-face (remote), gitlab (gitlab.personal_access_token),
+      # neon (neon.api_key), exa (exa.api_key) if you want Exa as an MCP instead of websearch.
+      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,markitdown,wikipedia-mcp,next-devtools-mcp,npm-sentinel,memory,aws-documentation,github-official,context7,deepwiki,microsoft-learn
       - --transport=streaming
       - --port=8080
       - --host=0.0.0.0
       - --allow-unauthenticated
-      # Per-server limits for the spawned containers (default: 1 CPU, 2 GB memory each)
+      # API keys for catalog servers (plain KEY=value file, keys named as in the catalog).
+      # Docker Desktop's keychain store is not available to a gateway running in a container.
+      - --secrets=/run/secrets/mcp_secrets
+      # Per-server limits for the spawned containers (default: 1 CPU, 1 GB memory each)
       - --cpus=1
-      - --memory=2Gb
+      - --memory=1Gb
     environment:
       DOCKER_MCP_IN_CONTAINER: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    secrets:
+      - mcp_secrets
     ports:
       - "127.0.0.1:${MCP_GATEWAY_PORT:-8200}:8080"
     mem_limit: 4g
     cap_drop: [ALL]
     restart: unless-stopped
+
+# Generated from .env by prepare-mcp-secrets.sh; do not edit by hand. Standard .env keys are
+# mapped to the catalog secret names (GITHUB_PERSONAL_ACCESS_TOKEN -> github.personal_access_token,
+# GH_TOKEN as fallback, CONTEXT7_API_KEY -> context7.api_key). Missing optional keys only produce warnings.
+secrets:
+  mcp_secrets:
+    file: ./mcp-secrets.env

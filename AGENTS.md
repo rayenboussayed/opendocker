@@ -19,8 +19,8 @@ You are running inside an isolated Docker container (Debian stable), not directl
 
 ## Tools
 
-- Available: Node.js with npm/npx, Python with pip and venv, git, git-lfs, gh, jq, yq, ripgrep (`rg`), fd, sqlite3,
-  curl, make. Compilers are not installed; use `sudo apt-get install -y build-essential` when something needs building.
+- Available: Node.js with npm/npx, Python with pip and venv, FFmpeg (`ffmpeg`, `ffprobe`, `ffplay`), git, git-lfs, gh,
+  jq, yq, ripgrep (`rg`), fd, sqlite3, curl, make. Compilers are not installed; use `sudo apt-get install -y build-essential` when something needs building.
 - `yq` is the jq-syntax YAML tool: queries use jq syntax and output JSON unless you add `-y`.
 - Node.js is built with pointer compression: about half the memory, but each process's heap is limited to 4 GB.
   N-API native addons work; addons using the older NAN API (e.g. `better-sqlite3`) can crash. Prefer an N-API
@@ -67,15 +67,23 @@ SSH is preconfigured. Use it; don't reconfigure it unless the user asks.
 
 ## MCP
 
-An MCP tool server is (optionally) available on the compose network, configured as a remote server in the system
-config:
+MCP servers are configured as remote servers in the system config. The mandatory compose stack is started by `make run`:
 
-- `docker-gateway` at `http://mcp-gateway:8080/mcp` — 76 tools: Playwright, Wikipedia, npm-sentinel (NPM package
-  analysis), `sequentialthinking`, `fetch`, `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`.
+- `docker-gateway` at `http://mcp-gateway:8080/mcp` — 137 tools through Docker's MCP Gateway: Playwright, Wikipedia,
+  npm-sentinel, sequentialthinking, fetch, time, duckduckgo, markitdown, next-devtools-mcp, memory, AWS documentation,
+  GitHub Official, Context7, DeepWiki and Microsoft Learn.
+- `gh_grep` — public GitHub code search through Grep/grep.app.
+- `cloudflare-docs` — Cloudflare documentation through `https://docs.mcp.cloudflare.com/mcp`.
 
-No authentication; reachable only on loopback and in the Docker network. It connects when the MCP stack is running;
-if it shows as disconnected, ask the user to start it (`make run`, or `docker compose -f docker-compose.yml -f
+No authentication on `docker-gateway` or `gh_grep`; they are reachable only on loopback and the internal compose network
+(except for outbound requests they make). The gateway connects when the MCP stack is running; if it shows as
+disconnected, ask the user to start it (`make run`, or `./prepare-mcp-secrets.sh && docker compose -f docker-compose.yml -f
 docker-compose.mcp.yml up -d mcp-gateway`) rather than editing the configuration.
+
+`.env` is the source of truth for MCP keys; `make run` generates the ignored, chmod-600 `mcp-secrets.env` for the
+gateway. Do not create or edit `mcp-secrets.env` directly. GitHub Official can write to repositories the token can
+reach, and agent permissions are allow-all, so do not issue broader GitHub tokens than needed.
+
 
 ## Network
 

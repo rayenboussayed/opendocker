@@ -6,7 +6,7 @@ root inside the container through `sudo`, plus Node.js, Python and common tools.
 [nimbleflux/opencode-docker](https://github.com/nimbleflux/opencode-docker), and existing sessions carry over.
 
 ```bash
-cp .env.example .env              # set OPENCODE_PASSWORD
+cp .env.example .env              # set OPENCODE_PASSWORD and any optional keys you use
 make run
 ```
 
@@ -35,6 +35,7 @@ Every command keeps the volumes, so your sessions, settings and workspace are ne
 | Node.js 26 + npm | the base image, `platformatic/node-caged:slim` |
 | OpenCode 2 | `npm install -g @opencode/cli@latest` |
 | Python 3.13 + pip + venv | Debian (`apt`) |
+| FFmpeg 7.1 + `ffprobe`/`ffplay` | Debian (`apt`) |
 | git, git-lfs, gh, ssh, sudo, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
 
 That's the whole install: one `apt-get install` line and one `npm install` line.
@@ -60,11 +61,16 @@ Everything goes in `.env`, and everything is optional.
 
 | `OPENCODE_PASSWORD` | Password for the web UI and API (username `opencode`) |
 | `OPENCODE_PORT` | Host port (default 4000) |
+| `OPENCODE_API_KEY` | Optional: OpenCode Console pay-as-you-go and OpenCode Go key; use `opencode/<model>` or `opencode-go/<model>` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from the host's `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key file in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from the host's `~/.gitconfig` |
 | `SSH_PRIVATE_KEY` | Private key contents, as an alternative to mounting `~/.ssh` |
 | `SSH_AUTH_SOCK` | `/ssh-agent` when mounting your ssh-agent |
 | `GH_TOKEN` | `gh` and HTTPS git for github.com |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | Optional: Docker MCP Gateway GitHub Official server; copied by `make run` into the generated gateway-secrets file |
+| `CONTEXT7_API_KEY` | Optional: Context7 higher rate limits; copied by `make run` into the generated gateway-secrets file |
+| `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: provider for OpenCode’s built-in web search (`websearch.provider` is `random`) |
+| `POSTHOG_PERSONAL_API_KEY` | Optional: direct PostHog MCP server in `opencode.json` (disabled by default) |
 | `NODE_TAG` | Build: base image tag; `slim` (default) is the newest Node, or e.g. `26-slim`, `26.13.1-slim` |
 | `OPENCODE_VERSION` | Build: `latest` (default) or e.g. `2.3.0` |
 | `NPM_PACKAGES`, `PIP_PACKAGES` | Build: extra global tools, e.g. `typescript pnpm@9` / `ruff` |
@@ -72,6 +78,34 @@ Everything goes in `.env`, and everything is optional.
 
 Versions are resolved when the image is built, so `make run-clean` (or `make build`) always picks up the latest
 releases.
+
+## OpenCode Console and OpenCode Go
+
+`.env` is also the supported place for the OpenCode Console API key:
+
+```dotenv
+OPENCODE_API_KEY=oc_sk_...
+```
+
+Docker Compose passes `.env` to the OpenCode server with `env_file`; the built-in `opencode` and `opencode-go`
+integrations both read `OPENCODE_API_KEY`. No `opencode.json`, Dockerfile or MCP-secrets entry is required, and
+`OPENCODE_API_KEY` is not copied into `mcp-secrets.env`.
+
+Recreate the container after changing the key so the server process picks up the new environment:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml down
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
+```
+
+Then open `/models` and select:
+
+- `opencode/<model>` for pay-as-you-go Console models;
+- `opencode-go/<model>` for the Go subscription.
+
+If both `OPENCODE_API_KEY` and a saved `/connect` account exist for the same integration, the saved account takes
+precedence. For shared or CI machines, prefer a Console service-account key over a personal key; service-account keys
+are created by workspace owners/admins. Keep the key out of `opencode.json`, the Dockerfile, Compose arguments and git.
 
 To use the OpenCode terminal client against the container's server:
 
@@ -87,9 +121,10 @@ docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 | macOS (Intel & Apple Silicon) with Docker Desktop | Works; all images are multi-arch (arm64 native) |
 | Windows with Docker Desktop | Works; WSL2 backend recommended. The Makefile needs GNU make (`winget install GnuWin32.Make`) — or use the compose commands below, which are the portable path |
 
-Portable commands (any OS):
+Portable commands (any OS with a POSIX shell; on native Windows use Git Bash or WSL2):
 
 ```bash
+./prepare-mcp-secrets.sh
 docker compose -f docker-compose.yml -f docker-compose.mcp.yml build
 docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 ```
@@ -142,28 +177,60 @@ depend on the mount.
 
 ## MCP servers
 
-An MCP stack ships in `docker-compose.mcp.yml` and is part of the default flow: `make run` (and every plain `docker
-compose` command via two `-f` files) starts it alongside OpenCode. It runs MCP tool servers for the agent, published on
-`127.0.0.1` for this machine and reachable by the agent over the compose network:
+An MCP stack ships in `docker-compose.mcp.yml` and is part of the default flow: `make run` starts it alongside OpenCode.
+It runs MCP tool servers for the agent, published on `127.0.0.1` for this machine and reachable by the agent over the
+compose network:
 
 ```bash
 make run
 # or by hand:
+./prepare-mcp-secrets.sh
 docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 ```
 
-| Server | Container endpoint | Host endpoint | Backed by |
+`.env` is the source of truth for MCP keys. `prepare-mcp-secrets.sh` maps the Compose-safe variable names in `.env` to
+the catalog secret names in a generated, chmod-600 `mcp-secrets.env`; `make run` does this automatically. The generated
+file is gitignored and must not be edited. The mappings are:
+
+| `.env` key | Catalog secret | Purpose |
+|---|---|---|
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | `github.personal_access_token` | GitHub Official MCP server |
+| `GH_TOKEN` | `github.personal_access_token` | Used only when `GITHUB_PERSONAL_ACCESS_TOKEN` is unset |
+| `CONTEXT7_API_KEY` | `context7.api_key` | Optional; raises Context7 rate limits |
+
+Missing optional keys only produce gateway warnings; GitHub Official will not work without a token. Use a fine-grained,
+least-privilege GitHub token: the agent can create branches, pull requests and repository contents without another
+confirmation prompt.
+
+| Entry | Where it runs | Backed by | Active by default |
 |---|---|---|---|
-| Docker MCP Gateway | `http://mcp-gateway:8080/mcp` | `http://127.0.0.1:8200/mcp` | `docker/mcp-gateway` + 9 `mcp/*` images (Docker-built, cosign-verified by the gateway) |
+| Docker MCP Gateway | `http://mcp-gateway:8080/mcp` (container), `http://127.0.0.1:8200/mcp` (host) | `docker/mcp-gateway` + catalog servers | yes |
+| `gh_grep` | direct remote | Grep/grep.app public GitHub code search | yes |
+| `cloudflare-docs` | direct remote | `https://docs.mcp.cloudflare.com/mcp` | yes |
+| `astryx`, Linear, Notion, Atlassian, Sentry, Figma, Supabase, Neon, Vercel, Cloudflare API, Stripe, PostHog, ESLint | direct remote/local | see `opencode.json` | no, `"disabled": true` |
 
-The gateway serves 76 tools: Playwright (23, driving a real Chromium), Wikipedia (22), npm-sentinel (19), plus
-`sequentialthinking`, `fetch`, `time`, `duckduckgo`, `markitdown`, `next-devtools-mcp`. No authentication — the endpoint is only on
-loopback and the internal compose network; don't publish it any wider without adding auth (or a proxy) back.
+The gateway proxies local stdio servers as containers and three remote documentation services:
 
-OpenCode is already wired to the container endpoint in `opencode.json` (`mcp.servers.docker-gateway`). When the stack
-is down it shows as disconnected — harmless. Host-side clients use the loopback URL with no token:
+- Local: `sequentialthinking`, `playwright`, `fetch`, `time`, `duckduckgo`, `markitdown`, `wikipedia-mcp`, `next-devtools-mcp`, `npm-sentinel`, `memory`, `aws-documentation`, `github-official`.
+- Remote: `context7`, `deepwiki`, `microsoft-learn`.
 
-The first start pulls the `mcp/*` images (a few GB); subsequent starts reuse them. Docker's MCP Gateway signature-verifies them against Docker's keyring.
+That is 137 tools through the gateway; including the enabled direct servers (`gh_grep` and `cloudflare-docs`) OpenCode
+sees about 140. The exact list can change with upstream catalogs and server versions.
+
+`cloudflare-docs` is configured directly because Docker’s catalog entry still points to the retired
+`https://docs.mcp.cloudflare.com/sse` endpoint, which returns HTTP 410 Gone. The direct endpoint above initializes
+successfully without authentication.
+
+`memory` persists its knowledge graph in the Docker-managed `claude-memory` volume. It is deliberately outside the
+`opencode-*` volumes, is shared across projects, and is **not** removed by `make clean`.
+
+OpenCode is already wired to these servers in `opencode.json`. When the gateway is down it shows as disconnected —
+harmless. Host-side clients can use the loopback gateway URL with no token:
+
+The first start pulls the missing local images (a few GB); subsequent starts reuse them. Docker’s MCP Gateway pins
+catalog images to digests and signature-verifies Docker MCP images against Docker’s keyring. The official GitHub image is
+GitHub-built from GHCR and does not publish an equivalent Docker signature; the remote documentation servers are proxied
+and are not image-verified by the gateway.
 
 ```bash
 curl -s http://127.0.0.1:8200/mcp -X POST \
@@ -171,10 +238,18 @@ curl -s http://127.0.0.1:8200/mcp -X POST \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+To enable a disabled server, remove or set `"disabled": false` in `opencode.json` and restart OpenCode. For OAuth
+servers, run the OpenCode sign-in flow (`/mcps`, or `opencode mcp auth <name>`). If the browser cannot reach the
+in-container callback, copy the callback URL into the sign-in prompt instead of reloading it. Supabase and Neon are
+configured read-only; keep those flags when enabling them.
+
 Security notes:
 - Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` on the internal compose network. Host port defaults to 8200; override with `MCP_GATEWAY_PORT` in `.env` if needed.
-- The gateway mounts `/var/run/docker.sock` because it *is* the control plane spawning the `mcp/*` containers. The agent container never sees the socket.
-- `duckduckgo`, `wikipedia-mcp` and `next-devtools-mcp` are community-maintained (unofficial); the rest come from the original authors (Microsoft, Google, modelcontextprotocol). Browser MCPs can see and do anything the browser can — treat their output as untrusted input.
+- The gateway mounts `/var/run/docker.sock` because it *is* the control plane spawning the MCP containers. The agent container never sees the socket.
+- `duckduckgo`, `wikipedia-mcp` and `next-devtools-mcp` are community-maintained (unofficial); the GitHub Official image is GitHub-maintained. Browser MCPs can see and do anything the browser can — treat their output as untrusted input.
+- `websearch.provider` is `random`, but random selection does not provide credentials. Set one of `EXA_API_KEY`, `FIRECRAWL_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY` or `TINYFISH_API_KEY` in `.env`, or connect a provider in `/connect`.
+- Public documentation/code endpoints enabled by default send your queries there: Grep/grep.app, Cloudflare Docs and, through the gateway, Context7, DeepWiki and Microsoft Learn.
+
 
 ## AGENTS.md
 

@@ -4,7 +4,7 @@ FROM platformatic/node-caged:${NODE_TAG}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG DEBIAN_FRONTEND=noninteractive
 
-ARG PACKAGES="bash-completion less nano vim-tiny jq yq ripgrep fd-find tree file zip unzip bzip2 \
+ARG PACKAGES="bash-completion less nano vim-tiny jq yq ripgrep fd-find tree file zip unzip bzip2 ffmpeg \
   procps htop lsof iputils-ping bind9-dnsutils netcat-openbsd sqlite3 make gh"
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl git git-lfs openssh-client sudo socat tini \

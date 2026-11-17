@@ -4,13 +4,16 @@ BUILD_FLAGS ?= --pull --no-cache
 COMPOSE      = -f docker-compose.yml -f docker-compose.mcp.yml
 UP           = @trap : INT TERM; $(DOCKER) compose $(COMPOSE) up; $(MAKE) --no-print-directory $(1)
 
-.PHONY: run run-clean build down clean docker test
+.PHONY: run run-clean build down clean secrets docker test
 
-run:
+run: secrets
 	$(call UP,down)
 
-run-clean: build
+run-clean: secrets build
 	$(call UP,clean)
+
+secrets:
+	@./prepare-mcp-secrets.sh
 
 build:
 	$(DOCKER) compose $(COMPOSE) build $(BUILD_FLAGS)
