@@ -236,6 +236,8 @@ on your laptop. Three ways to give it your code:
 |---|---|
 | `make run` | Starts OpenCode and the MCP stack. Builds the image only if it doesn't exist yet. Ctrl+C stops; your data stays. |
 | `make run-clean` | Builds a fresh image (latest base, no cache) and starts. Use after pulling repo updates. |
+| `make run-opencode-clean` | Fresh OpenCode image; starts only OpenCode and its MCP gateway. |
+| `make run-n8n-clean` | Fresh OpenCode image; starts OpenCode, its MCP gateway and n8n (Postgres follows via `depends_on`). |
 | `make build` | Builds the image without starting. |
 | `make down` | Stops and removes the OpenCode and MCP containers. Data stays. |
 | `make clean` | Same, plus removes the image. Data stays. |
