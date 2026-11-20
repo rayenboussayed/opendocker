@@ -35,6 +35,7 @@ RUN mkdir -p /opt/opencode-base-skills/find-skills \
 COPY --chmod=0644 ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0644 ssh_config /etc/ssh/ssh_config.d/50-opencode.conf
 COPY --chmod=0644 AGENTS.md opencode.json /etc/opencode/
+RUN chmod 755 /etc/opencode
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
 
 ENV LANG=C.UTF-8 \

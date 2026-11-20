@@ -1,23 +1,26 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["/etc/opencode/AGENTS.md"],
-  "permissions": [{ "action": "*", "resource": "*", "effect": "allow" }],
+  "permissions": [
+    { "action": "*", "resource": "*", "effect": "allow" },
+    { "action": "skill", "resource": "*", "effect": "allow" }
+  ],
   "websearch": { "provider": "random" },
   "mcp": {
     "timeout": { "startup": 60000 },
     "servers": {
       "docker-gateway": {
         "type": "remote",
-        "url": "http://mcp-gateway:8080/mcp",
+        "url": "{env:MCP_GATEWAY_URL}",
         "oauth": false,
         "timeout": { "startup": 120000, "catalog": 120000 }
       },
       "gh_grep": { "type": "remote", "url": "https://mcp.grep.app", "oauth": false },
       "cloudflare-docs": { "type": "remote", "url": "https://docs.mcp.cloudflare.com/mcp", "oauth": false },
-      "astryx": { "type": "remote", "url": "https://astryx.atmeta.com/mcp", "enable": true },
+      "astryx": { "type": "remote", "url": "https://astryx.atmeta.com/mcp" },
       "atlassian": { "type": "remote", "url": "https://mcp.atlassian.com/v2/mcp", "disabled": true },
       "cloudflare": { "type": "remote", "url": "https://mcp.cloudflare.com/mcp", "disabled": true },
-      "eslint": { "type": "local", "command": ["npx", "-y", "@eslint/mcp@latest"], "enable": true },
+      "eslint": { "type": "local", "command": ["npx", "-y", "@eslint/mcp@latest"] },
       "figma": { "type": "remote", "url": "https://mcp.figma.com/mcp", "disabled": true },
       "linear": { "type": "remote", "url": "https://mcp.linear.app/mcp", "disabled": true },
       "neon": { "type": "remote", "url": "https://mcp.neon.tech/mcp?readonly=true", "disabled": true },

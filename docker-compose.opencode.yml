@@ -1,6 +1,34 @@
 name: opencode-docker
 
 services:
+  mcp-gateway:
+    image: docker/mcp-gateway:latest
+    command:
+      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,markitdown,wikipedia-mcp,next-devtools-mcp,npm-sentinel,memory,aws-documentation,github-official,context7,deepwiki,microsoft-learn,grafana,dockerhub,mcp-code-interpreter,n8n
+      - --transport=streaming
+      - --port=8080
+      - --host=0.0.0.0
+      - --allow-unauthenticated
+      - --secrets=/run/secrets/mcp_secrets
+      - --config=/run/secrets/mcp_config
+      - --cpus=1
+      - --memory=1Gb
+    environment:
+      DOCKER_MCP_IN_CONTAINER: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./gateway-config.json:/root/.docker/config.json:ro
+    secrets:
+      - mcp_secrets
+      - mcp_config
+    ports:
+      - "127.0.0.1:${MCP_GATEWAY_PORT:-8200}:8080"
+    mem_limit: 4g
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
   opencode:
     build:
       context: .
@@ -15,6 +43,7 @@ services:
       - GIT_SIGNING_KEY=${GIT_SIGNING_KEY:-}
       - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
       - SSH_AUTH_SOCK=/home/opencode/.ssh/agent/agent.sock
+      - MCP_GATEWAY_URL=http://mcp-gateway:8080/mcp
       - EXA_API_KEY=${EXA_API_KEY:-}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
       - PARALLEL_API_KEY=${PARALLEL_API_KEY:-}
@@ -23,6 +52,8 @@ services:
       - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
     ports:
       - "127.0.0.1:4000:4000"
+    depends_on:
+      - mcp-gateway
     volumes:
       - opencode-config:/home/opencode/.config/opencode
       - opencode-data:/home/opencode/.local/share/opencode
@@ -43,6 +74,12 @@ services:
     pids_limit: 4096
     mem_limit: 8g
     restart: unless-stopped
+
+secrets:
+  mcp_secrets:
+    file: ./.env.mcp
+  mcp_config:
+    file: ./mcp-config.yml
 
 volumes:
   opencode-config:

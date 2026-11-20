@@ -9,15 +9,19 @@ Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — r
 `make run` starts five containers: OpenCode (agent and web UI on port 4000), the Docker MCP gateway (host port
 `MCP_GATEWAY_PORT`, default 8200), **n8n** (workflow editor on port 5678), its **Postgres** database, and a private
 **SearXNG** search backend. OpenCode, the gateway and n8n publish on `127.0.0.1`; Postgres and SearXNG are reachable
-only over the internal compose network. The code files are intentionally comment-light — the rationale lives in the
-repo's `README.md` under "Design decisions & rationale"; put "why" notes there, not back into the code.
+only over the internal compose network. OpenCode and the gateway share `docker-compose.opencode.yml` (with
+`opencode` depending on `mcp-gateway`), while n8n, Postgres and SearXNG live in `docker-compose.n8n.yml`. The code
+files are intentionally comment-light — put "why" notes in the repo's `README.md`, in its design-decisions section,
+not back into the code.
 
 The `opencode` service passes an explicit `environment:` allowlist and never `env_file: .env`; n8n/Postgres/SearXNG
 secrets must never enter the agent container. OpenCode is limited to 4,096 processes / 8 GB memory, the gateway to
 4 GB, n8n to 2 GB, and Postgres/SearXNG to 1 GB; all services drop capabilities and set `no-new-privileges: true`.
 
-The Dockerfile copies `AGENTS.md` and `opencode.json` to `/etc/opencode/`, and `opencode.json` loads
-`/etc/opencode/AGENTS.md`; keep those paths in sync if either file moves.
+The Dockerfile copies `AGENTS.md` and `opencode.json` to `/etc/opencode/`, chmods that directory to 755 so the
+`opencode` user can read it, and `opencode.json` loads `/etc/opencode/AGENTS.md`; keep those paths in sync if either file
+moves. `gateway-config.json` enables the gateway's `tool-name-prefix` feature to avoid tool-name collisions. Run
+`opencode mcp list` from `~/workspace`, not the home directory, or no project config is discovered.
 
 - n8n stores workflows, credentials and execution history in Postgres. `N8N_ENCRYPTION_KEY` in `.env`
   encrypts stored credentials — back it up and never rotate it casually.
@@ -460,7 +464,8 @@ live. Without it, symlinks break; recreate after restoring the mount.
 **Q: Something is broken — where do I look first?**
 A: In order: `ssh-add -l` → `ssh -T git@github.com` → `ls -l ~/.ssh` (public files) → `git config --list --show-origin` →
 `git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
-warnings), ask the user to run `docker compose logs opencode | grep entrypoint` — you can't run Docker commands here.
+warnings), ask the user to run `docker compose -f docker-compose.opencode.yml logs opencode | grep entrypoint` — you
+can't run Docker commands here. For MCP status, ask for `opencode mcp list`.
 
 ## Ask the user first
 
@@ -482,22 +487,31 @@ warnings), ask the user to run `docker compose logs opencode | grep entrypoint` 
 ## MCP
 
 MCP servers come from two places: Docker's catalog runs in the gateway, and `opencode.json` lists direct remotes plus
-disabled optional servers. `make run` starts the gateway:
+disabled optional servers. The gateway and OpenCode are defined in `docker-compose.opencode.yml`; `opencode` has a plain
+`depends_on: mcp-gateway` so the container exists before OpenCode connects. `make run` starts both:
 
-- `mcp-gateway` (config key `docker-gateway`) at `http://mcp-gateway:8080/mcp` — roughly 137 catalog tools: Playwright,
-  Wikipedia, npm-sentinel, sequentialthinking, fetch, time, duckduckgo, markitdown, next-devtools-mcp, memory, AWS
-  documentation, GitHub Official, Context7, DeepWiki and Microsoft Learn.
-- `gh_grep` and `cloudflare-docs` are public remote endpoints with no authentication; they are not loopback services.
+- `mcp-gateway` (config key `docker-gateway`) — roughly 264 catalog tools from 19 servers. The original 15 are
+  Playwright, Wikipedia, npm-sentinel, sequentialthinking, fetch, time, duckduckgo, markitdown, next-devtools-mcp, memory,
+  AWS documentation, GitHub Official, Context7, DeepWiki and Microsoft Learn; `grafana`, `dockerhub`,
+  `mcp-code-interpreter` and `n8n` were added. `memory` was already enabled.
+- `gh_grep`, `cloudflare-docs`, `astryx` and `eslint` are enabled direct servers; the rest of `opencode.json` is disabled.
 
-The gateway also has no authentication and holds the Docker socket as its control plane. It is published on loopback
-(`MCP_GATEWAY_PORT`, default 8200) and is reachable from every container in this compose project — treat access to it as
-host-level access. The agent container never sees the socket. If the gateway shows as disconnected, ask the user to
-start it (`make run`, or `docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d mcp-gateway`) rather than
-editing the configuration.
+The gateway URL comes from `MCP_GATEWAY_URL`: Compose sets `http://mcp-gateway:8080/mcp` inside the container; a host
+OpenCode CLI must start with `MCP_GATEWAY_URL=http://127.0.0.1:8200/mcp` in its environment (the background service
+captures it at startup). `mcp-config.yml` holds non-secret config values (currently
+`n8n.api_url: http://n8n:5678`); `.env.mcp` holds secrets only and must remain chmod 600. Config values in `.env.mcp`
+are silently ignored. The n8n API key has no CLI/env generator — it is created in n8n's Settings → n8n API UI.
 
-`.env.mcp` is the MCP-only catalog credential file; it is ignored and should remain chmod 600. It is not passed to
-OpenCode and must not contain application secrets such as `OPENCODE_API_KEY`. GitHub Official can write to repositories the token can
-reach, and agent permissions are allow-all, so do not issue broader GitHub tokens than needed.
+Tools are hidden by Code Mode: `opencode mcp list` shows connection status, and inside the agent `execute` →
+`search({ namespace: "..." })` discovers them. The gateway has no authentication and holds the Docker socket as its
+control plane; it is published on loopback and reachable from every container in this project — treat access as
+host-level. Spawned MCP containers share the Compose network but do not inherit the Compose services' `cap_drop: ALL`,
+so consider them additional network peers. If the gateway shows as disconnected, ask the user to start it (`make run`,
+or `docker compose -f docker-compose.opencode.yml up -d mcp-gateway`) rather than editing configuration.
+
+`.env.mcp` is not passed to OpenCode and must not contain application secrets such as `OPENCODE_API_KEY`. GitHub Official
+can write to repositories the token can reach, and agent permissions are allow-all, so do not issue broader GitHub
+tokens than needed.
 
 ## Network
 

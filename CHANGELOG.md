@@ -44,6 +44,10 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - `Makefile` targets: `run`, `run-clean`, `run-opencode-clean`, `run-n8n-clean`, `build`, `down`, `clean` [2fe292c].
 - MCP stack included in the default flow: `make run` starts it alongside OpenCode; `make down` and
   `make clean` handle both stacks [98c6ff9].
+- Four catalog MCP servers: `grafana`, `dockerhub`, `mcp-code-interpreter` and `n8n`. `memory` was already enabled, so
+  the gateway now runs 19 servers and roughly 264 tools.
+- `mcp-config.yml` holds non-secret catalog config (`n8n.api_url`), mounted read-only into the gateway.
+  `.env.mcp.example` documents the optional Grafana, Docker Hub and n8n secret keys.
 
 ### Changed
 
@@ -62,6 +66,11 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   stripped of inline comments; rationale now lives in the README's "Design decisions & rationale" section. The
   entrypoint gained named functions, the n8n stack uses a YAML anchor for shared hardening, disabled MCP servers are
   one-line stubs and `.dockerignore` uses an `.env*` glob. Healthchecks were added for n8n and wired for SearXNG.
+- `docker-compose.yml` and `docker-compose.mcp.yml` were merged into `docker-compose.opencode.yml`; `opencode` gained
+  `depends_on: mcp-gateway` so the gateway container exists before OpenCode connects. The gateway URL comes from
+  `MCP_GATEWAY_URL` (Compose sets the internal URL; a host CLI exports the loopback URL). Catalog config values come
+  from `mcp-config.yml` via `--config`; `.env.mcp` stays secrets-only.
+- `astryx` and `eslint` no longer carry the redundant `enable: true` field — they are enabled by default in V2.
 
 ### Removed
 
@@ -69,6 +78,8 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - MCP bearer token on the gateway (loopback-only, not reachable from the LAN) [ed5290f].
 - Chrome DevTools MCP server (Playwright kept as the browser automation path) [51bd358].
 - Stale `make test` / `make docker` commands and the nonexistent `tests/` section from the docs [1504b5e].
+- `Makefile` targets `run-opencode-clean` and `run-n8n-clean`, plus the service-list variables and the `$(2)` macro
+  parameter they alone used. `run-clean` is now the only clean target.
 
 ### Fixed
 
@@ -81,6 +92,13 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   helper was removed from the docs.
 - AGENTS.md's stale claims about published ports, the SSH key install path and the unauthenticated gateway were fixed;
   its duplicated FAQ entries and skills tables were consolidated.
+- The host OpenCode CLI could not resolve `http://mcp-gateway:8080/mcp` (a Compose-internal hostname); the URL is now
+  driven by `MCP_GATEWAY_URL`, and the docs explain how to inspect MCP status and find Code Mode tools.
+- `/etc/opencode` was mode 644, so the `opencode` user could not read the system config and OpenCode reported no MCP
+  servers; the Dockerfile now chmods it to 755. `gateway-config.json` enables `tool-name-prefix` to resolve the
+  `dockerhub`/`duckduckgo` `search` tool collision; all 19 servers and 264 tools now load.
+- Stale README claims about `${VAR:?}` guards, config requiring a restart, and tool counts were corrected; bare
+  `docker compose` commands in the docs now carry both `-f` flags.
 
 ### Security
 
@@ -97,6 +115,10 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - The gateway runs with `cap_drop: [ALL]`, a 4 GB memory limit and publishes on `127.0.0.1` only; the Docker
   socket is mounted into the gateway (its control plane) and never into the OpenCode container [91bd0de]
   [0e74b9e] [946ab2d].
+- The new MCPs are documented with their real capability surface and least-privilege token guidance. Gateway-spawned
+  MCP containers get `no-new-privileges` but not the Compose services' `cap_drop: ALL`; `mcp-code-interpreter` runs
+  arbitrary Python and `mcp/n8n` can manage workflows. n8n has no supported CLI/env way to generate a default API key,
+  so the key remains an explicit, optional user action.
 - Gateway catalog servers are pinned to digests and signature-verified by the gateway; the agent container drops all
   capabilities except the five needed for `chown` and the `setpriv` drop to the agent user [2fe292c] [91bd0de].
 - `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
