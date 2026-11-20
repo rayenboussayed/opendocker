@@ -41,6 +41,10 @@ A `find-skills` base skill is baked into the image and seeded at startup into
 volume. The entrypoint restores it if missing, so treat it as image-managed: don't try to
 `skills update` or `skills remove` it; upstream changes arrive on rebuild (`SKILLS_REF`).
 
+At every container start the entrypoint runs `npx -y skills update -g -y`, then stages the `~/.agents`
+volume and creates a signed local commit there if anything changed. There is no remote push; the local
+git history is the rollback trail for skill updates. Update failures only log a warning.
+
 Use the CLI via `npx skills` (no install needed; the Node version here is new enough). It is
 non-interactive when given a query and `-y`. Docs: https://www.skills.sh/docs/cli.
 

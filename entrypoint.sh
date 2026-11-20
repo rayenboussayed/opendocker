@@ -133,4 +133,33 @@ if [ -n "${GIT_SIGNING_KEY:-}" ]; then
   fi
 fi
 
+# Keep a local, signed snapshot of every skills update. Never blocks startup.
+refresh_skills_snapshot() {
+  local repo="$H/.agents" msg
+
+  if ! npx -y skills update -g -y; then
+    log "WARNING: skills update failed - keeping the previous snapshot"
+    return 0
+  fi
+
+  mkdir -p "$repo" || { log "WARNING: cannot create $repo"; return 0; }
+  if [ ! -d "$repo/.git" ]; then
+    git -C "$repo" init -q || { log "WARNING: could not init skills git repo"; return 0; }
+  fi
+
+  git -C "$repo" add -A || { log "WARNING: could not stage skills changes"; return 0; }
+  if git -C "$repo" diff --cached --quiet; then
+    return 0
+  fi
+
+  msg="skills: auto-update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if git -C "$repo" commit -q -m "$msg"; then
+    log "committed skills snapshot: $msg"
+  else
+    log "WARNING: skills snapshot commit failed"
+  fi
+}
+
+refresh_skills_snapshot
+
 exec "$@"
