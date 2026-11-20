@@ -196,9 +196,11 @@ A `find-skills` base skill is baked into the image and seeded at startup into
 volume. The entrypoint restores it if missing, so treat it as image-managed: don't try to
 `skills update` or `skills remove` it; upstream changes arrive on rebuild (`SKILLS_REF`).
 
-At every container start the entrypoint runs `npx -y skills update -g -y`, then stages the `~/.agents`
-volume and creates a signed local commit there if anything changed. There is no remote push; the local
-git history is the rollback trail for skill updates. Update failures only log a warning.
+At every container start the entrypoint starts `npx -y skills update -g -y` in the **background**, so
+the server starts immediately; its output goes to `~/.local/share/opencode/skills-update.log`. The
+updater stages the `~/.agents` volume and creates a signed local commit there if anything changed. There
+is no remote push; the local git history is the rollback trail for skill updates. Update failures only
+log a warning to that file.
 
 Use the CLI via `npx skills` (no install needed; the Node version here is new enough). It is
 non-interactive when given a query and `-y`. Docs: https://www.skills.sh/docs/cli.

@@ -50,6 +50,8 @@ services:
       - "127.0.0.1:${MCP_GATEWAY_PORT:-8200}:8080"
     mem_limit: 4g
     cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 # MCP-only catalog secrets. Copy .env.mcp.example to .env.mcp, set the keys you need, and

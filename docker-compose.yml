@@ -35,6 +35,14 @@ services:
       # - /run/host-services/ssh-auth.sock:/ssh-agent
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, KILL, AUDIT_WRITE]
+    # no-new-privileges is intentionally absent here: the agent uses passwordless sudo
+    # inside the container (a setuid binary). Every other service sets it.
+    security_opt:
+      - seccomp=builtin
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     pids_limit: 4096
     mem_limit: 8g
     restart: unless-stopped

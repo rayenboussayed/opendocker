@@ -26,6 +26,8 @@ services:
       retries: 10
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
     pids_limit: 256
     mem_limit: 1g
 
@@ -73,6 +75,8 @@ services:
         condition: service_healthy
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
     pids_limit: 512
     mem_limit: 2g
 
@@ -95,6 +99,8 @@ services:
       start_period: 15s
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
     pids_limit: 256
     mem_limit: 1g
     # No published port: only n8n (and other compose services) can reach this instance.

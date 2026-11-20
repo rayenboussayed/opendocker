@@ -160,6 +160,9 @@ refresh_skills_snapshot() {
   fi
 }
 
-refresh_skills_snapshot
+# The updater clones many repositories, which can take minutes. Run it in the background so
+# the server starts immediately; its output and snapshot commit go to a log file.
+( refresh_skills_snapshot ) > "$H/.local/share/opencode/skills-update.log" 2>&1 &
+log "skills refresh started in background (~/.local/share/opencode/skills-update.log)"
 
 exec "$@"

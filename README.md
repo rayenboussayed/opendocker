@@ -363,7 +363,13 @@ inside the container, and the compose file keeps that root inside:
 - **No host access.** No Docker socket; only named volumes plus the read-only `~/.ssh` and `~/.gitconfig` mounts.
 - **Localhost only.** The port is published on `127.0.0.1`.
 - **Resource limits.** 4,096 processes and 8 GB of memory.
-- Docker's default seccomp and AppArmor profiles stay on. `no-new-privileges` is not set, because it would disable sudo.
+- Docker's default seccomp and AppArmor profiles stay on. Every service except OpenCode sets
+  `no-new-privileges: true`; OpenCode can't, because it relies on sudo (a setuid binary).
+- **Package install scripts are allowed.** npm 12's script blocking is disabled for the build and at runtime
+  (`--dangerously-allow-all-scripts` and `NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS=true`), and pip runs source
+  build backends by default. Third-party install code therefore executes during the image build (no host mounts
+  or secrets in the build context) and, at runtime, inside this restricted container as the non-root `opencode`
+  user — not on your host.
 
 What this doesn't cover:
 
