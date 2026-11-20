@@ -77,7 +77,7 @@ services:
     mem_limit: 2g
 
   searxng:
-    image: ghcr.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    image: ghcr.io/searxng/searxng:latest
     restart: unless-stopped
     environment:
       # The image ships with a placeholder secret when this is unset.

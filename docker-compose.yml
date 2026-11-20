@@ -4,7 +4,7 @@ services:
   opencode:
     build:
       context: .
-      args: [NODE_TAG, OPENCODE_VERSION, PACKAGES, NPM_PACKAGES, PIP_PACKAGES]
+      args: [NODE_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES]
     env_file:
       - path: .env
         required: false

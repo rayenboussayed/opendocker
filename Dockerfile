@@ -13,10 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && git lfs install --system --skip-repo \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
-ARG OPENCODE_VERSION=latest
 ARG NPM_PACKAGES=
 ARG PIP_PACKAGES=
-RUN npm install -g "@opencode/cli@${OPENCODE_VERSION}" ${NPM_PACKAGES} \
+RUN npm install -g "@opencode/cli@latest" ${NPM_PACKAGES} \
  && rm -rf "$(npm root -g)/@opencode/cli/node_modules" \
  && if [ -n "${PIP_PACKAGES}" ]; then pip install --break-system-packages --no-cache-dir ${PIP_PACKAGES}; fi \
  && npm cache clean --force

@@ -261,12 +261,10 @@ which is ignored and is never passed to OpenCode.
 | `OPENCODE_PASSWORD` | Password for the web UI and API (username `opencode`) |
 | `OPENCODE_PORT` | Host port (default 4000) |
 | `N8N_PORT` | Host port for the n8n editor (default 5678) |
-| `N8N_VERSION` | n8n image tag (default `2.48.6`; community packages need ≥ 2.21) |
 | `N8N_ENCRYPTION_KEY` | Encrypts n8n credentials in Postgres. Generate once (`openssl rand -hex 32`) and back it up |
 | `N8N_TIMEZONE` | Timezone for n8n's Schedule node (default `Europe/Paris`) |
 | `N8N_POSTGRES_USER`, `N8N_POSTGRES_PASSWORD`, `N8N_POSTGRES_DB` | n8n's Postgres credentials |
 | `SEARXNG_SECRET` | Secret for the private SearXNG instance (`openssl rand -hex 32`) |
-| `SEARXNG_VERSION` | SearXNG image tag (default `latest`) |
 | `OPENCODE_API_KEY` | Optional: OpenCode Console pay-as-you-go and OpenCode Go key; models appear as `opencode/<model>` or `opencode-go/<model>` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from your `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from your `~/.gitconfig` |
@@ -276,7 +274,6 @@ which is ignored and is never passed to OpenCode.
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
 | `NODE_TAG` | Build: base image tag (default `slim`) |
-| `OPENCODE_VERSION` | Build: OpenCode version (default `latest`) |
 | `NPM_PACKAGES`, `PIP_PACKAGES` | Build: extra global tools |
 | `PACKAGES` | Build: replaces the default Debian package list |
 
