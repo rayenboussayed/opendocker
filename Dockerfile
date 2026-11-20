@@ -15,8 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG NPM_PACKAGES=
 ARG PIP_PACKAGES=
-RUN npm install -g "@opencode/cli@latest" ${NPM_PACKAGES} \
+# Keep both package managers at their latest release before installing anything else.
+RUN npm i -g npm@latest \
+ && npm install -g "@opencode/cli@latest" ${NPM_PACKAGES} \
  && rm -rf "$(npm root -g)/@opencode/cli/node_modules" \
+ && python3 -m pip install --break-system-packages --no-cache-dir --upgrade --ignore-installed pip \
  && if [ -n "${PIP_PACKAGES}" ]; then pip install --break-system-packages --no-cache-dir ${PIP_PACKAGES}; fi \
  && npm cache clean --force
 

@@ -318,7 +318,8 @@ docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 | FFmpeg 7.1 + `ffprobe`/`ffplay` | Debian (`apt`) |
 | git, git-lfs, gh, ssh, sudo, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
 
-That's the whole install: one `apt-get install` line and one `npm install` line.
+That's the whole install: one `apt-get install` line, npm/pip upgraded to their latest releases, and one
+`npm install` line.
 
 ### About node-caged
 
