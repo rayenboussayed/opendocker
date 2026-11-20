@@ -166,22 +166,23 @@ do **not** rewrite projects in Rust unless the user explicitly asks.
 - Agent skills: global OpenCode skills live in `~/.config/opencode/skills` (`opencode-config` volume), the skills CLI's
   canonical store and global lock in `~/.agents` (`opencode-global-skills` volume), and project skills in
   `<project>/.agents/skills/` with `skills-lock.json` in the project root (`opencode-workspace`). See "Agent skills (skills.sh)" below.
-- Everything else — system packages installed with `sudo apt-get`, global npm/pip installs, files you create outside the
-  paths above — is lost when the environment is recreated.
-- If a project permanently needs a system package, ask the user to add it to `PACKAGES` in their `.env` and rebuild.
+- Everything else — global npm/pip installs and files you create outside the paths above — is lost when the environment
+  is recreated.
+- There is no `sudo` and no system package manager at runtime: use only preinstalled tools. If a project permanently
+  needs a system package, ask the user to add it to `PACKAGES` in their `.env` and rebuild.
 - Prefer project-local dependencies (`package.json`, a virtualenv) over global installs.
 
 ## Tools
 
 - Available: Node.js with npm/npx, Python with pip and venv, FFmpeg (`ffmpeg`, `ffprobe`, `ffplay`), git, git-lfs, gh,
   jq, yq, ripgrep (`rg`), fd, sqlite3, curl, make, nano/vim.
-- You run as the `opencode` user with passwordless `sudo`. Use it only for what needs root (e.g. `sudo apt-get install -y <pkg>`); don't use it for `npm`/`pip`.
-- No compilers by default: `sudo apt-get install -y build-essential` when something needs building.
+- You run as the unprivileged `opencode` user. There is no `sudo` and no `apt` at runtime; use only preinstalled tools.
+- No compilers are available by default. If something needs building, ask the user to add a package to `PACKAGES` and rebuild.
 - `yq` is the jq-syntax YAML tool: queries use jq syntax and output JSON unless you add `-y`.
 - Node.js is built with pointer compression: about half the memory, but each process's heap is limited to 4 GB.
   N-API native addons work; addons using the older NAN API (e.g. `better-sqlite3`) can crash. Prefer an N-API
-  alternative, or rebuild them with `rebuild-nan-addons` after installing `build-essential`.
-- `npm install -g` and `pip install` work without sudo and install into `~/.local`.
+  alternative, or ask the user to add `build-essential` to `PACKAGES` and rebuild.
+- `npm install -g` and `pip install` install into `~/.local`.
 
 ## Agent skills (skills.sh)
 
@@ -292,14 +293,15 @@ SSH is preconfigured. Use it as-is; don't reconfigure it unless the user asks.
 
 ### Where the keys come from
 
-- At every start, the host's `~/.ssh` is copied into `~/.ssh` (read-only source at `~/.ssh-host`). Permissions are fixed:
-  `~/.ssh` is 700, private keys 600, `*.pub` / `known_hosts*` 644.
-- The copy is refreshed at every start: key changes made on the host appear after a restart. Files added to `~/.ssh`
-  here are lost when the environment is recreated and never reach the host.
-- The host's `~/.ssh/config` is copied too (it is a file): host aliases (e.g. `git@github-work:org/repo.git`),
-  `IdentityFile`, etc. are honored. Directories, `authorized_keys` and `environment` are deliberately not copied.
-- A `$HOST_HOME/.ssh` symlink points at the copied `~/.ssh`, so a `user.signingkey` path from the host's git config —
-  absolute, or `~/.ssh/...` — resolves verbatim to the copied keys.
+- At every start, the entrypoint loads private keys from the host's `~/.ssh` (read-only source at `~/.ssh-host`) into
+  an in-container `ssh-agent`. No private key is written to the container's writable filesystem.
+- Only public files (`*.pub`, `known_hosts*`, `allowed_signers`, `config`) are staged into `~/.ssh` with `~/.ssh` at 700
+  and public files at 644. `authorized_keys`, `environment` and directories are not copied.
+- The agent is refreshed at every start: key changes on the host appear after a restart. Files added to `~/.ssh` here
+  are lost when the environment is recreated and never reach the host.
+- The host's `~/.ssh/config` is staged too: aliases (e.g. `git@github-work:org/repo.git`) are honored.
+- A `$HOST_HOME/.ssh` symlink points at the staged `~/.ssh`, so a `user.signingkey` path from the host's git config —
+  absolute, or `~/.ssh/...` — resolves verbatim to the staged public key.
 - `~/.ssh-host` is read-only: you cannot change the host's keys from here.
 
 ### Pre-trusted hosts
@@ -314,14 +316,13 @@ SSH is preconfigured. Use it as-is; don't reconfigure it unless the user asks.
 
 ### ssh-agent
 
-- If the user forwards an agent (socket mounted at `/ssh-agent`, `SSH_AUTH_SOCK=/ssh-agent` in `.env`, with the two
-  socket lines in `docker-compose.yml` uncommented), ssh and git use it for transport, and for signing with
-  `GIT_SIGNING_KEY=agent`.
-- If the socket can't be used by your uid directly, it is relayed automatically and `SSH_AUTH_SOCK` points at the relay.
-- `ssh-add -l` lists the keys the agent offers.
-- Without an agent, key files in `~/.ssh` are used directly. Passphrase-protected keys prompt — which fails in
-  non-interactive sessions. Use agent forwarding (ask the user to enable it) or an unprotected key; never try to
-  decrypt or bypass the passphrase.
+- An `ssh-agent` is started for you at container start. The host's private keys are loaded into it directly from the
+  read-only mount and are never copied into the container's writable filesystem — only public keys, `known_hosts`,
+  `allowed_signers` and SSH `config` remain in `~/.ssh`.
+- `SSH_AUTH_SOCK` is set automatically. ssh and git use the agent for transport and for SSH signing.
+- `ssh-add -l` lists the keys the agent holds. Never try to read, copy or exfiltrate a private key — there are no
+  private key files on disk here. If a needed key isn't loaded, ask the user to provide it via `SSH_PRIVATE_KEY` or
+  restart the environment.
 
 ### One-shot key install
 
@@ -339,8 +340,8 @@ SSH is preconfigured. Use it as-is; don't reconfigure it unless the user asks.
 
 - `ssh -T git@github.com` — exit code 1 with "Hi <name>! You've successfully authenticated, but GitHub does not provide
   shell access." means **success** (GitHub doesn't offer shell access).
-- `git clone`/`git push` hanging or prompting means there is no usable key: check `ls -l ~/.ssh` (names and permissions
-  only) and `ssh-add -l`.
+- `git clone`/`git push` hanging or prompting means there is no usable key: check `ssh-add -l` first, then
+  `ls -l ~/.ssh` (public files only — private keys live in the agent, not on disk).
 - Verbose trace when anything is unclear: `ssh -vvv -T git@github.com`.
 - Fingerprint of a public key: `ssh-keygen -lf ~/.ssh/<name>.pub`.
 - Effective config: `ssh -G github.com | grep -iE '^(hostname|user|identityfile|port)'` and
@@ -369,7 +370,8 @@ SSH is preconfigured. Use it as-is; don't reconfigure it unless the user asks.
 
 Signing with SSH keys (no GPG) is enabled automatically when a signing key resolves. At start the environment sets
 `gpg.format=ssh`, `commit.gpgsign=true`, `tag.gpgsign=true`, and rebuilds `~/.config/git/allowed_signers` from the key
-in use (git is pointed at it via `gpg.ssh.allowedSignersFile`).
+in use (git is pointed at it via `gpg.ssh.allowedSignersFile`). The private half stays only in `ssh-agent`; the public
+key file is used for verification.
 
 ### Which key signs
 
@@ -426,17 +428,16 @@ file is used.
 ## FAQ
 
 **Q: How do I authenticate to GitHub?**
-A: For git (clone/push/fetch): the SSH keys already in `~/.ssh`. For `gh`: set `GH_TOKEN` in `.env`, then ask the user
-to recreate the environment. Don't create tokens yourself.
+A: For git (clone/push/fetch): the SSH keys loaded into the container's `ssh-agent` at startup. For `gh`: set `GH_TOKEN`
+in `.env`, then ask the user to recreate the environment. Don't create tokens yourself.
 
 **Q: Why does `ssh -T git@github.com` exit with code 1?**
 A: That is success against GitHub — it means the key was accepted; GitHub just doesn't provide shell access.
 
 **Q: `Permission denied (publickey)` on clone/push — checklist?**
-A: 1) `ssh -T git@github.com` to separate SSH auth from git. 2) `ls -l ~/.ssh` — are the key files present with sane
-permissions (600/644)? 3) `ssh-add -l` — is an agent offering keys? Without one, git falls back to key files, which
-prompts for passphrases and fails non-interactively. 4) Is the remote URL SSH (`git remote -v`)? 5) If local checks
-pass, the key may not be attached to the account — ask the user.
+A: 1) `ssh -T git@github.com` to separate SSH auth from git. 2) `ssh-add -l` — does the agent hold the key? 3)
+`ls -l ~/.ssh` (public files only; private keys are not on disk). 4) Is the remote URL SSH (`git remote -v`)? 5) If
+local checks pass, the key may not be attached to the account — ask the user.
 
 **Q: Why can't I clone this `https://github.com/...` URL?**
 A: Git-over-HTTPS needs credentials. Either set `GH_TOKEN` (enables the `gh` credential helper for github.com), or
@@ -473,22 +474,22 @@ and `~/.ssh-host` is read-only, so the fix is on the host (add the key to the ho
 restart. Never bypass host key checking.
 
 **Q: Can I add my own SSH key?**
-A: Ask the user. The sanctioned mechanism is `SSH_PRIVATE_KEY` in `.env` (installed at start as
-`id_ed25519`/`id_rsa`/`id_ecdsa`). Never `ssh-copy-id` and never install keys on servers yourself.
+A: Ask the user. The sanctioned mechanism is `SSH_PRIVATE_KEY` in `.env` (loaded into `ssh-agent` at start, never left
+on disk). Never `ssh-copy-id` and never install keys on servers yourself.
 
 **Q: Why is my passphrase-protected key not working?**
-A: Non-interactive sessions can't answer the passphrase prompt. Either the user forwards an agent (socket at
-`/ssh-agent` + `SSH_AUTH_SOCK=/ssh-agent` in `.env` + recreate) or provides an unprotected key via `SSH_PRIVATE_KEY`.
-Don't try to decrypt or bypass it.
+A: Non-interactive sessions can't answer a passphrase prompt. The in-container ssh-agent loads keys at startup; a
+key that needs a passphrase must be added by the user outside this environment, or provided unprotected via
+`SSH_PRIVATE_KEY`. Don't try to decrypt or bypass it.
 
 **Q: Do I need to type a password to push?**
-A: With SSH remotes and keys in `~/.ssh`: no. With HTTPS to github.com and `GH_TOKEN` set: no (the credential helper
+A: With SSH remotes and a key in `ssh-agent`: no. With HTTPS to github.com and `GH_TOKEN` set: no (the credential helper
 supplies it). Otherwise git prompts and the push fails non-interactively — fix the remote or the token; don't guess.
 
 **Q: Why are there two keys in `~/.ssh`?**
 A: Common host setups keep an authentication key and a signing key. Transport identity and signing identity are
-independent: git transport uses the keys in `~/.ssh` (or the agent); commit signing uses `user.signingkey` (from
-`.env` or the host config) or `GIT_SIGNING_KEY=agent`.
+independent: git transport uses the key in `ssh-agent`; commit signing uses `user.signingkey` (from `.env` or the
+host config, pointing at the staged public key) or `GIT_SIGNING_KEY=agent`.
 
 **Q: Can I use different GitHub accounts per repo (work vs personal)?**
 A: Yes, if the host's `~/.ssh/config` defines aliases (e.g. `github.com-work`) — it is copied at start. Use the alias
@@ -509,7 +510,7 @@ A: Only github.com, and only when `GH_TOKEN`/`GITHUB_TOKEN` is set (`credential.
 Other hosts use SSH or nothing.
 
 **Q: Something is broken — where do I look first?**
-A: In order: `~/.ssh` permissions → `ssh -T git@github.com` → `ssh-add -l` → `git config --list --show-origin` →
+A: In order: `ssh-add -l` → `ssh -T git@github.com` → `ls -l ~/.ssh` (public files) → `git config --list --show-origin` →
 `git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
 warnings), ask the user to run `docker compose logs opencode | grep entrypoint` — you can't run Docker commands here.
 

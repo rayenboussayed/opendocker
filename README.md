@@ -268,8 +268,7 @@ which is ignored and is never passed to OpenCode.
 | `OPENCODE_API_KEY` | Optional: OpenCode Console pay-as-you-go and OpenCode Go key; models appear as `opencode/<model>` or `opencode-go/<model>` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from your `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from your `~/.gitconfig` |
-| `SSH_PRIVATE_KEY` | Private key contents, as an alternative to mounting `~/.ssh` |
-| `SSH_AUTH_SOCK` | `/ssh-agent` when forwarding your ssh-agent |
+| `SSH_PRIVATE_KEY` | Private key contents; loaded into the in-container ssh-agent at start, never written to disk |
 | `GH_TOKEN` | `gh` and HTTPS git for github.com |
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
@@ -316,7 +315,7 @@ docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 | OpenCode 2 | `npm install -g @opencode/cli@latest` |
 | Python 3.13 + pip + venv | Debian (`apt`) |
 | FFmpeg 7.1 + `ffprobe`/`ffplay` | Debian (`apt`) |
-| git, git-lfs, gh, ssh, sudo, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
+| git, git-lfs, gh, ssh, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
 
 That's the whole install: one `apt-get install` line, npm/pip upgraded to their latest releases, and one
 `npm install` line.
@@ -354,17 +353,21 @@ Cross-platform notes:
 
 ## Is it safe?
 
-Short version: **reasonable precautions, not a fortress.** The agent runs as `opencode` with passwordless `sudo`
-inside the container, and the compose file keeps that root inside:
+Short version: **reasonable precautions, not a fortress.** The agent runs as the unprivileged `opencode` user
+with no sudo and no system package manager at runtime:
 
-- **Minimal kernel privileges.** All capabilities are dropped and only the ones sudo, apt and the startup script
-  need are added back. Even with sudo, the agent can't mount filesystems, create namespaces, chroot, open raw
+- **Minimal kernel privileges.** All capabilities are dropped and only the ones the startup script needs to drop
+  from root to the agent user are added back. The agent can't mount filesystems, create namespaces, chroot, open raw
   sockets, create device nodes, change kernel settings or read the kernel log.
+- **No new privileges.** `no-new-privileges: true` is set on every service, including OpenCode, so setuid escalation
+  inside the container is blocked.
 - **No host access.** No Docker socket; only named volumes plus the read-only `~/.ssh` and `~/.gitconfig` mounts.
-- **Localhost only.** The port is published on `127.0.0.1`.
+  Private SSH keys are loaded into an in-container `ssh-agent` and never written to the container's disk.
+- **Loopback only.** The port is published on `127.0.0.1`.
 - **Resource limits.** 4,096 processes and 8 GB of memory.
-- Docker's default seccomp and AppArmor profiles stay on. Every service except OpenCode sets
-  `no-new-privileges: true`; OpenCode can't, because it relies on sudo (a setuid binary).
+- Docker's default seccomp and AppArmor profiles stay on.
+- **Minimal secret exposure.** Only agent-specific environment variables are passed in; n8n/Postgres/SearXNG secrets
+  never enter this container.
 - **Package install scripts are allowed.** npm 12's script blocking is disabled for the build and at runtime
   (`--dangerously-allow-all-scripts` and `NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS=true`), and pip runs source
   build backends by default. Third-party install code therefore executes during the image build (no host mounts
@@ -542,22 +545,18 @@ image to change it (`make run-clean`).
 
 ## SSH and commit signing
 
-Uncomment one option in `docker-compose.yml`:
-
-- **Mount your keys:** `~/.ssh:/home/opencode/.ssh-host:ro`. They're copied into `~/.ssh` with the permissions ssh
-  requires.
-- **Forward your ssh-agent:** the socket mount, plus `SSH_AUTH_SOCK=/ssh-agent` in `.env`. No key files enter the
-  container.
-- **Paste a key:** set `SSH_PRIVATE_KEY` in `.env`.
+SSH keys stay on the host. The entrypoint starts an `ssh-agent` inside the container, loads keys directly from the
+read-only `~/.ssh` mount (or from `SSH_PRIVATE_KEY`), and deletes any private-key copies. Only public keys,
+`known_hosts`, `allowed_signers` and SSH config remain in `~/.ssh`. Git and ssh use `SSH_AUTH_SOCK` automatically —
+no agent forwarding is needed.
 
 Git identity and signing are inferred from the host: the entrypoint reads `user.name`, `user.email` and
 `user.signingkey` from your `~/.gitconfig` (mounted read-only) when the corresponding `.env` values are unset.
-The host's `~/.ssh` is mounted read-only and copied into the container's `~/.ssh` with fixed ownership/permissions;
-the entrypoint then symlinks `$HOST_HOME/.ssh` to that `~/.ssh`, so the `signingkey` path in your host config resolves
-verbatim inside the container — absolute paths and `~` both work. A host with `gpg.format = ssh` and
-`signingkey = ~/.ssh/….pub` gets fully working commits signed with the same key — no `.env` entries needed. If your
-host has no `~/.gitconfig`, create one (`touch ~/.gitconfig`) or remove the mount in `docker-compose.yml`, otherwise
-the Docker daemon creates an empty directory at the source path.
+Public keys are staged into the container's `~/.ssh`, and `$HOST_HOME/.ssh` is symlinked to it, so the `signingkey`
+path in your host config resolves verbatim inside the container — absolute paths and `~` both work. A host with
+`gpg.format = ssh` and `signingkey = ~/.ssh/….pub` gets commits signed with the same key through the agent — no
+`.env` entries needed. If your host has no `~/.gitconfig`, create one (`touch ~/.gitconfig`) or remove the mount in
+`docker-compose.yml`, otherwise the Docker daemon creates an empty directory at the source path.
 
 GitHub, GitLab and Bitbucket host keys are pre-trusted. With `GIT_SIGNING_KEY` set, commits and tags are signed; add
 the same public key to GitHub as a **signing key** to see them marked "Verified".
@@ -614,9 +613,9 @@ Normal. It's downloading several GB of images. Subsequent starts take seconds. G
 By default it lives in its own volume. See [Your projects: how they get in](#your-projects-how-they-get-in).
 
 **`git push` says "Permission denied (publickey)".**
-Your SSH keys are copied in at start — restart the environment (`make run`) so new keys are picked up, and use an
-SSH remote (`git@github.com:you/repo.git`). Still stuck? See AGENTS.md; the agent inside can also diagnose itself
-(`ssh -T git@github.com`).
+SSH keys are loaded into the container's ssh-agent at start — restart the environment (`make run`) so new keys are
+picked up, and use an SSH remote (`git@github.com:you/repo.git`). Inside the container, `ssh-add -l` shows which keys
+the agent holds. Still stuck? See AGENTS.md.
 
 **Commits show "Unverified" on GitHub.**
 Upload your SSH key to GitHub as a **Signing Key** (not an authentication key): Settings → SSH and GPG keys → New SSH
@@ -638,7 +637,7 @@ Sessions and workspace live in Docker volumes and survive `make clean`. To erase
 - Built and tested on amd64; arm64 images exist for the base image and all `mcp/*` servers, so Apple Silicon should
   work but is untested.
 - Debian's `gh` is 2.46, which is older; `yq` is the jq-syntax tool (kislyuk/yq), not mikefarah/yq.
-- Packages the agent installs with `sudo apt-get` disappear when the container is recreated; add them to `PACKAGES`.
+- There is no `sudo` or `apt` at runtime; packages you need must be added to `PACKAGES` and the image rebuilt.
 - `docker compose exec` opens a root shell; add `-u opencode` to act as the agent.
 - First start pulls a few GB of images.
 

@@ -5,13 +5,27 @@ services:
     build:
       context: .
       args: [NODE_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES]
-    env_file:
-      - path: .env
-        required: false
+    # Pass only what the agent needs. Never use env_file: .env here: that would also
+    # hand n8n/Postgres/SearXNG secrets to every process in this container.
     environment:
       # Lets the entrypoint link $HOST_HOME/.ssh -> ~/.ssh inside the container,
       # so the signingkey path from the host's ~/.gitconfig resolves verbatim
       - HOST_HOME=${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}
+      - OPENCODE_PASSWORD=${OPENCODE_PASSWORD:-}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
+      - GH_TOKEN=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GIT_SIGNING_KEY=${GIT_SIGNING_KEY:-}
+      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
+      # Stable path so git/ssh processes (including docker compose exec) find the in-container agent.
+      - SSH_AUTH_SOCK=/home/opencode/.ssh/agent/agent.sock
+      - EXA_API_KEY=${EXA_API_KEY:-}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - PARALLEL_API_KEY=${PARALLEL_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - TINYFISH_API_KEY=${TINYFISH_API_KEY:-}
+      - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
     ports:
       - "127.0.0.1:4000:4000"
     volumes:
@@ -21,7 +35,8 @@ services:
       - opencode-cache:/home/opencode/.cache
       # Global skills: the skills CLI's canonical store and lock live in ~/.agents
       - opencode-global-skills:/home/opencode/.agents
-      # Host SSH keys: composed from HOME or USERPROFILE so it works without a HOME env var
+      # Host SSH keys (read-only): private keys are loaded into an in-container ssh-agent
+      # on startup and are never copied into the container's writable filesystem.
       - "${HOME:-${USERPROFILE:-~}}/.ssh:/home/opencode/.ssh-host:ro"
       # Git identity and SSH signing key, inferred from the host's ~/.gitconfig (read-only).
       # Optional: .env values (GIT_USER_NAME / GIT_USER_EMAIL / GIT_SIGNING_KEY) take precedence.
@@ -34,10 +49,9 @@ services:
       # - ${SSH_AUTH_SOCK}:/ssh-agent
       # - /run/host-services/ssh-auth.sock:/ssh-agent
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, KILL, AUDIT_WRITE]
-    # no-new-privileges is intentionally absent here: the agent uses passwordless sudo
-    # inside the container (a setuid binary). Every other service sets it.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     security_opt:
+      - no-new-privileges:true
       - seccomp=builtin
     ulimits:
       nofile:

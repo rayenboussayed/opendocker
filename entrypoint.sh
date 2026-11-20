@@ -4,28 +4,66 @@ set -Eeuo pipefail
 H=/home/opencode
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
 
-install_ssh_keys() {
+stage_public_ssh_files() {
   local dir="$H/.ssh" f n
   mkdir -p "$dir" && chmod 700 "$dir"
   if [ -d "$H/.ssh-host" ]; then
     for f in "$H/.ssh-host"/* "$H/.ssh-host"/.[!.]*; do
       [ -f "$f" ] || continue
       n="$(basename "$f")"
-      case "$n" in authorized_keys|environment) continue ;; esac
+      # Private keys stay on the host and are loaded straight into ssh-agent below.
+      case "$n" in
+        authorized_keys|environment) continue ;;
+        *.pub|known_hosts*|allowed_signers|config) ;;
+        *) continue ;;
+      esac
       cp -fL "$f" "$dir/$n"
-      case "$n" in *.pub|known_hosts*|allowed_signers) chmod 644 "$dir/$n" ;; *) chmod 600 "$dir/$n" ;; esac
+      chmod 644 "$dir/$n"
     done
-    log "installed SSH files from ~/.ssh-host"
+    log "staged public SSH files from ~/.ssh-host"
   fi
   if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
-    local tmp="$dir/.key" pub name=id_ed25519
+    local tmp="$dir/.agent-key" pub name=id_ed25519
     printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$tmp"; chmod 600 "$tmp"
     if pub="$(ssh-keygen -y -P '' -f "$tmp" 2>/dev/null)"; then
       case "$pub" in ssh-rsa*) name=id_rsa ;; ecdsa-*) name=id_ecdsa ;; esac
       printf '%s\n' "$pub" > "$dir/$name.pub"
+      chmod 644 "$dir/$name.pub"
     fi
-    mv -f "$tmp" "$dir/$name"
-    log "installed SSH_PRIVATE_KEY as ~/.ssh/$name"
+    chown 1000:1000 "$tmp"
+    log "staged SSH_PRIVATE_KEY for ssh-agent"
+  fi
+}
+
+start_ssh_agent() {
+  local sockdir="$H/.ssh/agent"
+  local sock="$sockdir/agent.sock"
+  local key
+  mkdir -p "$sockdir" && chmod 700 "$sockdir"
+  rm -f "$sock"
+  eval "$(ssh-agent -s -a "$sock")" >/dev/null 2>&1
+  export SSH_AUTH_SOCK="$sock"
+
+  # Read private keys directly from the read-only host mount; no private key is
+  # ever written into the container's writable filesystem.
+  for key in "$H/.ssh-host"/id_ed25519 "$H/.ssh-host"/id_rsa "$H/.ssh-host"/id_ecdsa "$H/.ssh-host"/identity; do
+    [ -f "$key" ] || continue
+    if ssh-add "$key" >/dev/null 2>&1; then
+      log "loaded $(basename "$key") into ssh-agent"
+    fi
+  done
+  if [ -f "$H/.ssh/.agent-key" ]; then
+    if ssh-add "$H/.ssh/.agent-key" >/dev/null 2>&1; then
+      log "loaded SSH_PRIVATE_KEY into ssh-agent"
+    fi
+    rm -f "$H/.ssh/.agent-key"
+  fi
+  # Remove any private-key remnants from older setups in the writable key dir.
+  for key in "$H/.ssh"/id_ed25519 "$H/.ssh"/id_rsa "$H/.ssh"/id_ecdsa "$H/.ssh"/identity "$H/.ssh"/.key; do
+    if [ -f "$key" ]; then rm -f "$key"; fi
+  done
+  if ! ssh-add -l >/dev/null 2>&1; then
+    log "WARNING: ssh-agent has no keys - git push/signing may fail"
   fi
 }
 
@@ -45,11 +83,11 @@ if [ "$(id -u)" = 0 ]; then
   for d in .agents .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
     if [ -d "$H/$d" ] && [ "$(stat -c %u "$H/$d")" = 0 ]; then chown -R 1000:1000 "$H/$d"; log "fixed ownership of ~/$d"; fi
   done
-  install_ssh_keys
+  stage_public_ssh_files
   chown -R 1000:1000 "$H/.ssh"
   seed_base_skill
-  # Expose the copied keys at the host's real path, so git (and the host's ~/.gitconfig
-  # signingkey, absolute or ~) finds them exactly where the host config expects.
+  # Expose the staged public keys at the host's real path, so git (and the host's
+  # ~/.gitconfig signingkey, absolute or ~) finds them where the host config expects.
   case "${HOST_HOME:-}" in
     ""|/) ;;
     /*) if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
@@ -59,24 +97,13 @@ if [ "$(id -u)" = 0 ]; then
         fi ;;
     *) log "WARNING: HOST_HOME=$HOST_HOME is not an absolute path - ignoring" ;;
   esac
-  if [ -n "${SSH_AUTH_SOCK:-}" ]; then
-    if [ ! -S "$SSH_AUTH_SOCK" ]; then
-      log "SSH_AUTH_SOCK=$SSH_AUTH_SOCK is not a socket - ignoring"; unset SSH_AUTH_SOCK
-    elif ! setpriv --reuid=1000 --regid=1000 --init-groups test -w "$SSH_AUTH_SOCK"; then
-      install -d -o 1000 -g 1000 -m 0700 /tmp/ssh-agent
-      socat "UNIX-LISTEN:/tmp/ssh-agent/agent.sock,fork,unlink-early,user=1000,group=1000,mode=600" \
-            "UNIX-CONNECT:$SSH_AUTH_SOCK" &
-      for _ in $(seq 50); do [ -S /tmp/ssh-agent/agent.sock ] && break; sleep 0.1; done
-      export SSH_AUTH_SOCK=/tmp/ssh-agent/agent.sock
-      log "relaying ssh-agent socket for the opencode user"
-    fi
-  fi
   export HOME="$H" USER=opencode LOGNAME=opencode SHELL=/bin/bash
   exec setpriv --reuid=1000 --regid=1000 --init-groups "$0" "$@"
 fi
 
 export HOME="$H"
-[ "${USER:-}" = opencode ] || install_ssh_keys
+[ "${USER:-}" = opencode ] || stage_public_ssh_files
+start_ssh_agent
 
 cfg="$H/.config/git/config"
 mkdir -p "$(dirname "$cfg")"

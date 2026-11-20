@@ -7,7 +7,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PACKAGES="bash-completion less nano vim-tiny jq yq ripgrep fd-find tree file zip unzip bzip2 ffmpeg \
   procps htop lsof iputils-ping bind9-dnsutils netcat-openbsd sqlite3 make gh"
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl git git-lfs openssh-client sudo socat tini \
+      curl git git-lfs openssh-client socat tini \
       python3 python3-pip python3-venv python-is-python3 ${PACKAGES} \
  && rm -rf /var/lib/apt/lists/* \
  && git lfs install --system --skip-repo \
@@ -41,8 +41,7 @@ RUN mkdir -p /opt/opencode-base-skills/find-skills \
 RUN chmod 0755 /etc/opencode \
  && useradd -m -u 1000 -U -s /bin/bash opencode \
  && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \
- && chmod 700 /home/opencode/.ssh && chown -R opencode:opencode /home/opencode \
- && echo 'opencode ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/opencode && chmod 0440 /etc/sudoers.d/opencode
+ && chmod 700 /home/opencode/.ssh && chown -R opencode:opencode /home/opencode
 
 ENV LANG=C.UTF-8 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \

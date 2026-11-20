@@ -72,6 +72,12 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 
 ### Security
 
+- OpenCode has no sudo or system package manager at runtime; `no-new-privileges: true` is now set on every service,
+  including OpenCode, and its capability set was reduced to what the startup drop to the agent user requires.
+- Private SSH keys are loaded from the read-only host mount straight into an in-container `ssh-agent` and never written
+  to the container's writable filesystem. Git transport and SSH commit/tag signing work through the agent.
+- OpenCode receives an explicit allowlist of environment variables instead of the whole `.env`, so n8n/Postgres/SearXNG
+  secrets never enter the agent container.
 - The gateway runs with `cap_drop: [ALL]`, a 4 GB memory limit and publishes on `127.0.0.1` only; the Docker
   socket is mounted into the gateway (its control plane) and never into the OpenCode container [91bd0de]
   [0e74b9e] [946ab2d].
