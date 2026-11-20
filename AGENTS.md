@@ -4,6 +4,35 @@ You are working in a ready-to-use Debian development environment with Node.js, P
 
 Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — read this file before touching either.
 
+## Before you start working
+
+Skills are the encoded best practices for this environment and its projects — use them instead of
+falling back on generic knowledge. Do this **before** any implementation, research, or code change,
+and think step by step throughout:
+
+1. **Understand the task and the repo.** Read the request, then inspect the project (stack, frameworks,
+   `package.json`/manifest, layout, recent commits, existing docs) to learn which technologies and
+   domains are involved. Don't guess.
+2. **List the skills you'll need.** Map the stack and the task to concrete skill needs — e.g. TypeScript,
+   NestJS, Prisma, PostgreSQL/SQL, Playwright/E2E, React, a specific security/compliance topic, or docs
+   writing.
+3. **Inventory what's already available.** Run `npx skills list -g` and, inside the project,
+   `npx skills list`, and review the skills advertised in this session. Note what's missing.
+4. **Search for every missing skill.** Use `npx skills find <query> [--owner <owner>]` for each need — do
+   all the searches, don't stop at the first hit. Verify candidates: prefer 1K+ installs, reputable
+   sources (`anthropics`, `vercel-labs`, `microsoft`), read their `SKILL.md`, and check
+   https://skills.sh/audits. Preview with `npx skills use <owner/repo@skill>` before installing.
+5. **Install only the skills you'll actually use.** Project-only: from `~/workspace`, run
+   `npx skills add <owner/repo@skill> -a opencode -y`. Shared across projects:
+   `npx skills add <owner/repo@skill> -g -a opencode -y`. See "Install and update — keep them in
+   persisted volumes" for the storage details.
+6. **Load and read each installed skill before using it.** Call the `skill` tool with the skill's
+   directory name as its `id`, or read its `SKILL.md` directly — supporting files are relative to that
+   directory.
+7. **Consume the skills for the whole task.** Follow the loaded skills' instructions for the relevant
+   files, commands and decisions, and re-check them whenever the work enters a domain a skill covers.
+   Think step by step and verify each result.
+
 ## Workspace & persistence
 
 - Keep projects in `~/workspace` — it persists across restarts and rebuilds, together with `~/.config/opencode`,
