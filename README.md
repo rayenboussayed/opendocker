@@ -12,7 +12,8 @@
 - [Set it up in 3 steps](#set-it-up-in-3-steps) · [Your first 10 minutes](#your-first-10-minutes)
 - [Commands](#commands) · [Configuration](#configuration) · [What's inside](#whats-inside)
 - [Your projects: how they get in](#your-projects-how-they-get-in) · [Is it safe?](#is-it-safe)
-- [MCP servers](#mcp-servers) · [Universal config](#universal-config) · [AGENTS.md](#agentsmd)
+- [MCP servers](#mcp-servers) · [n8n, PostgreSQL, and SearXNG](#n8n-postgresql-and-searxng)
+- [Universal config](#universal-config) · [AGENTS.md](#agentsmd)
 - [SSH and commit signing](#ssh-and-commit-signing) · [Every platform](#every-platform)
 - [Troubleshooting](#troubleshooting) · [Known limitations](#known-limitations) · [Learn more](#learn-more)
 
@@ -178,10 +179,13 @@ docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
 The first run downloads a few GB and can take a few minutes. When you see the server start, open
 **http://localhost:4000**.
 
-**What just happened?** Two containers started:
+**What just happened?** Five containers started:
 
 - **OpenCode** — the agent and its web UI, on http://localhost:4000.
 - **The MCP gateway** — starts and manages ~15 tool servers for the agent (browsers, docs, GitHub…).
+- **n8n** — the workflow editor, on http://localhost:5678.
+- **PostgreSQL** — n8n's database (workflows, credentials, executions). Internal only.
+- **SearXNG** — a private web-search backend for n8n. Internal only.
 
 Sign in with username `opencode` and your password. If you didn't set one, OpenCode generates a new random password
 every start; find it with:
@@ -256,6 +260,13 @@ which is ignored and is never passed to OpenCode.
 |---|---|
 | `OPENCODE_PASSWORD` | Password for the web UI and API (username `opencode`) |
 | `OPENCODE_PORT` | Host port (default 4000) |
+| `N8N_PORT` | Host port for the n8n editor (default 5678) |
+| `N8N_VERSION` | n8n image tag (default `2.48.6`; community packages need ≥ 2.21) |
+| `N8N_ENCRYPTION_KEY` | Encrypts n8n credentials in Postgres. Generate once (`openssl rand -hex 32`) and back it up |
+| `N8N_TIMEZONE` | Timezone for n8n's Schedule node (default `Europe/Paris`) |
+| `N8N_POSTGRES_USER`, `N8N_POSTGRES_PASSWORD`, `N8N_POSTGRES_DB` | n8n's Postgres credentials |
+| `SEARXNG_SECRET` | Secret for the private SearXNG instance (`openssl rand -hex 32`) |
+| `SEARXNG_VERSION` | SearXNG image tag (default `latest`) |
 | `OPENCODE_API_KEY` | Optional: OpenCode Console pay-as-you-go and OpenCode Go key; models appear as `opencode/<model>` or `opencode-go/<model>` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from your `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from your `~/.gitconfig` |
@@ -439,6 +450,67 @@ curl -s http://127.0.0.1:8200/mcp -X POST \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+## n8n, PostgreSQL, and SearXNG
+
+`docker-compose.n8n.yml` adds a second, self-contained stack to the same compose project. It is part
+of `make run` / `make down` and uses the same internal network as OpenCode. Only n8n's editor is
+published on the host (`127.0.0.1:5678`); Postgres and SearXNG have no host ports.
+
+### One-time setup
+
+1. Open **http://localhost:5678** and create the owner account.
+2. **Credentials → New → OpenCode V2 API**:
+   - **Server URL**: `http://opencode:4000` (internal compose address — long agent replies can be cut
+     by a public reverse proxy)
+   - **Username**: `opencode` (fixed by OpenCode)
+   - **Password**: the `OPENCODE_PASSWORD` value from `.env`
+   - **Test** calls `GET /api/info`; it should pass.
+3. Try it: **Chat Trigger → OpenCode V2** (Chat / Send Message), leave Working Directory at `/tmp`
+   (avoids slow prompt hooks from project plugins), map `{{ $json.chatInput }}` and
+   `{{ $json.sessionId }}`, and return `{{ $json.reply }}`. Start with the Read Only permission preset.
+
+The community node is `n8n-nodes-opencode-v2@0.1.1`, pinned in the compose file by name, version and
+npm checksum. The original `ssccio/n8n-nodes-opencode` targets the OpenCode **V1** API (`/session`,
+Bearer auth), which no longer exists in OpenCode 2, so it is deliberately not installed. n8n logs a
+warning about a future change to `N8N_UNVERIFIED_PACKAGES_ENABLED`; the pinned checksum is why this
+package installs without enabling that flag globally.
+
+### Storage and search
+
+- n8n uses **Postgres** for workflows, credentials and execution history; the `.n8n` volume keeps the
+  encryption key. Back up both. `N8N_ENCRYPTION_KEY` must stay the same across rebuilds.
+- **SearXNG** listens at `http://searxng:8080`. `searxng-settings.yml` enables the `json` format
+  (the stock image only serves HTML, so `format=json` would otherwise return 403). It is the web
+  search backend for n8n Assistant, and is available immediately from any workflow:
+
+  ```bash
+  docker compose exec n8n wget -qO- \
+    'http://searxng:8080/search?q=opencode&format=json' | jq '.results | length'
+  ```
+
+  n8n Assistant itself stays off until you add a sandbox and a model key (see
+  [Set up n8n Assistant](https://docs.n8n.io/deploy/host-n8n/configure-n8n/set-up-n8n-assistant.md)).
+  The sandbox stack is intentionally not part of this lean setup.
+
+### Going the other direction
+
+To let the OpenCode agent call n8n workflows as tools, create an n8n **MCP Server Trigger** workflow
+with Bearer auth, then add a remote MCP entry to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "n8n": {
+      "type": "remote",
+      "url": "http://n8n:5678/mcp/<path>",
+      "headers": { "authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+Restart OpenCode after editing the config.
 
 ## Universal config
 

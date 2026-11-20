@@ -1,0 +1,105 @@
+name: opencode-docker
+
+# n8n workflow automation, its Postgres database, and a private SearXNG search backend.
+# Included in the default flow (make run / make down) alongside the base and MCP compose files.
+#
+# Everything stays on 127.0.0.1 and the internal compose network: n8n reaches OpenCode at
+# http://opencode:4000 (the server started by docker-compose.yml) and SearXNG at
+# http://searxng:8080. Only n8n's editor is published on the host.
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${N8N_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${N8N_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${N8N_POSTGRES_DB}
+      # postgres:18 moved its default data dir; pinning it keeps the volume mount stable.
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - n8n-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${N8N_POSTGRES_USER} -d ${N8N_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    pids_limit: 256
+    mem_limit: 1g
+
+  n8n:
+    image: n8nio/n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    environment:
+      # Database. SQLite is fine for testing, but Postgres is the persistent store here.
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${N8N_POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${N8N_POSTGRES_PASSWORD}
+
+      # Encrypts stored credentials. Keep this value: losing it makes credentials unreadable.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # Public URLs and timezone (schedule-oriented nodes use GENERIC_TIMEZONE).
+      N8N_HOST: localhost
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      GENERIC_TIMEZONE: ${N8N_TIMEZONE:-Europe/Paris}
+      TZ: ${N8N_TIMEZONE:-Europe/Paris}
+
+      # Hardening and quiet telemetry.
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+
+      # Bootstrap the pinned community node from npm at every start (n8n >= 2.21).
+      # The ssccio n8n-nodes-opencode is V1-only and cannot talk to OpenCode 2.
+      # The checksum is the npm tarball integrity, so an unverified package is safe to pin.
+      N8N_COMMUNITY_PACKAGES_MANAGED_BY_ENV: "true"
+      N8N_COMMUNITY_PACKAGES: '[{"name":"n8n-nodes-opencode-v2","version":"0.1.1","checksum":"sha512-5RB+hRO96m6AqGZx+mw5jiVD60ffdX34IE2zBmCMxNONMxfM80R1J0khIuy1XhaUvsocDX2NA1UApb8FoKBwqw=="}]'
+      N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE: "true"
+
+      # Web search for n8n Assistant; also reachable directly from workflow HTTP Request nodes.
+      N8N_INSTANCE_AI_SEARXNG_URL: http://searxng:8080
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    pids_limit: 512
+    mem_limit: 2g
+
+  searxng:
+    image: ghcr.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      # The image ships with a placeholder secret when this is unset.
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_BASE_URL: http://searxng:8080
+    volumes:
+      # Stock SearXNG only serves HTML; this enables the JSON API n8n expects.
+      - ./searxng-settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    pids_limit: 256
+    mem_limit: 1g
+    # No published port: only n8n (and other compose services) can reach this instance.
+
+volumes:
+  n8n-data:
+  n8n-postgres:
+  searxng-cache:

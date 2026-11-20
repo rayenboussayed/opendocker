@@ -1,0 +1,16 @@
+# Minimal SearXNG configuration for a private, internal-only instance.
+# `use_default_settings` merges these overrides with SearXNG's defaults instead of
+# replacing them, so all default engines remain available.
+use_default_settings: true
+
+search:
+  # The stock image only enables `html`. n8n Assistant (and HTTP Request workflows)
+  # call `/search?...&format=json`, which returns 403 unless `json` is listed here.
+  formats:
+    - html
+    - json
+
+server:
+  # No public instance: keep bot-protection link tokens and image proxying off.
+  image_proxy: false
+  limiter: false

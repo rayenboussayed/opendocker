@@ -4,6 +4,21 @@ You are working in a ready-to-use Debian development environment with Node.js, P
 
 Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — read this file before touching either.
 
+## Additional services
+
+`make run` starts five containers: OpenCode (agent and web UI on port 4000), the Docker MCP gateway,
+**n8n** (workflow editor on port 5678), its **Postgres** database, and a private **SearXNG** search
+backend. Only the OpenCode web UI and n8n editor are published on `127.0.0.1`; Postgres and SearXNG
+are reachable only over the internal compose network.
+
+- n8n stores workflows, credentials and execution history in Postgres. `N8N_ENCRYPTION_KEY` in `.env`
+  encrypts stored credentials — back it up and never rotate it casually.
+- n8n reaches the OpenCode server at `http://opencode:4000` with HTTP Basic auth (user `opencode`,
+  password `OPENCODE_PASSWORD`). The community node is pinned by checksum in `docker-compose.n8n.yml`.
+- SearXNG is at `http://searxng:8080`. JSON results require the `search.formats` override in
+  `searxng-settings.yml`. It backs n8n Assistant web search and can be queried directly from an
+  n8n HTTP Request node.
+
 ## Before you start working
 
 Skills are the encoded best practices for this environment and its projects — use them instead of
