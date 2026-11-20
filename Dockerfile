@@ -3,45 +3,39 @@ FROM platformatic/node-caged:${NODE_TAG}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG DEBIAN_FRONTEND=noninteractive
-
 ARG PACKAGES="bash-completion less nano vim-tiny jq yq ripgrep fd-find tree file zip unzip bzip2 ffmpeg \
   procps htop lsof iputils-ping bind9-dnsutils netcat-openbsd sqlite3 make gh"
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl git git-lfs openssh-client socat tini \
-      python3 python3-pip python3-venv python-is-python3 ${PACKAGES} \
- && rm -rf /var/lib/apt/lists/* \
- && git lfs install --system --skip-repo \
- && ln -s /usr/bin/fdfind /usr/local/bin/fd
+ARG NPM_PACKAGES= PIP_PACKAGES=
+ARG SKILLS_REF=main
 
-ARG NPM_PACKAGES=
-ARG PIP_PACKAGES=
-# Keep both package managers at their latest release before installing anything else.
-# npm 12 blocks install scripts by default; allow all of them (the image build is isolated,
-# see docker-compose.yml). pip has no script allowlist: source builds run their build backend.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl git git-lfs openssh-client socat tini util-linux \
+      python3 python3-pip python3-venv python-is-python3 ${PACKAGES} \
+  && rm -rf /var/lib/apt/lists/* \
+  && git lfs install --system --skip-repo \
+  && ln -s /usr/bin/fdfind /usr/local/bin/fd
+
 RUN npm i -g npm@latest \
- && npm install -g --dangerously-allow-all-scripts "@opencode/cli@latest" ${NPM_PACKAGES} \
- && rm -rf "$(npm root -g)/@opencode/cli/node_modules" \
- && python3 -m pip install --break-system-packages --no-cache-dir --upgrade --ignore-installed pip \
- && if [ -n "${PIP_PACKAGES}" ]; then pip install --break-system-packages --no-cache-dir ${PIP_PACKAGES}; fi \
- && npm cache clean --force
+  && npm install -g --dangerously-allow-all-scripts "@opencode/cli@latest" ${NPM_PACKAGES} \
+  && rm -rf "$(npm root -g)/@opencode/cli/node_modules" \
+  && python3 -m pip install --break-system-packages --no-cache-dir --upgrade --ignore-installed pip \
+  && if [ -n "${PIP_PACKAGES}" ]; then pip install --break-system-packages --no-cache-dir ${PIP_PACKAGES}; fi \
+  && npm cache clean --force
+
+RUN mkdir -p /opt/opencode-base-skills/find-skills \
+  && curl -fsSL --retry 3 \
+       "https://raw.githubusercontent.com/vercel-labs/skills/${SKILLS_REF}/skills/find-skills/SKILL.md" \
+       -o /opt/opencode-base-skills/find-skills/SKILL.md \
+  && chmod -R a+rX /opt/opencode-base-skills \
+  && useradd -m -u 1000 -U -s /bin/bash opencode \
+  && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \
+  && chmod 700 /home/opencode/.ssh \
+  && chown -R opencode:opencode /home/opencode
 
 COPY --chmod=0644 ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0644 ssh_config /etc/ssh/ssh_config.d/50-opencode.conf
 COPY --chmod=0644 AGENTS.md opencode.json /etc/opencode/
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
-
-# Pristine base skill baked into the image; the entrypoint seeds it into the persisted skills dir.
-ARG SKILLS_REF=main
-RUN mkdir -p /opt/opencode-base-skills/find-skills \
- && curl -fsSL --retry 3 \
-      "https://raw.githubusercontent.com/vercel-labs/skills/${SKILLS_REF}/skills/find-skills/SKILL.md" \
-      -o /opt/opencode-base-skills/find-skills/SKILL.md \
- && chmod -R a+rX /opt/opencode-base-skills
-
-RUN chmod 0755 /etc/opencode \
- && useradd -m -u 1000 -U -s /bin/bash opencode \
- && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \
- && chmod 700 /home/opencode/.ssh && chown -R opencode:opencode /home/opencode
 
 ENV LANG=C.UTF-8 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \

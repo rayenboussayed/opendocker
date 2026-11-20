@@ -1,107 +1,32 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["/etc/opencode/AGENTS.md"],
-  "permissions": [
-    { "action": "*", "resource": "*", "effect": "allow" },
-    { "action": "skill", "resource": "*", "effect": "allow" }
-  ],
-  "websearch": {
-    "provider": "random"
-  },
+  "permissions": [{ "action": "*", "resource": "*", "effect": "allow" }],
+  "websearch": { "provider": "random" },
   "mcp": {
-    "timeout": {
-      "startup": 60000,
-      "catalog": 30000
-    },
+    "timeout": { "startup": 60000 },
     "servers": {
       "docker-gateway": {
         "type": "remote",
         "url": "http://mcp-gateway:8080/mcp",
         "oauth": false,
-        "timeout": {
-          "startup": 120000,
-          "catalog": 120000
-        }
+        "timeout": { "startup": 120000, "catalog": 120000 }
       },
-      "gh_grep": {
-        "type": "remote",
-        "url": "https://mcp.grep.app",
-        "oauth": false
-      },
-      "linear": {
-        "type": "remote",
-        "url": "https://mcp.linear.app/mcp",
-        "disabled": true
-      },
-      "notion": {
-        "type": "remote",
-        "url": "https://mcp.notion.com/mcp",
-        "disabled": true
-      },
-      "atlassian": {
-        "type": "remote",
-        "url": "https://mcp.atlassian.com/v2/mcp",
-        "disabled": true
-      },
-      "sentry": {
-        "type": "remote",
-        "url": "https://mcp.sentry.dev/mcp",
-        "disabled": true
-      },
-      "figma": {
-        "type": "remote",
-        "url": "https://mcp.figma.com/mcp",
-        "disabled": true
-      },
-      "supabase": {
-        "type": "remote",
-        "url": "https://mcp.supabase.com/mcp?read_only=true",
-        "disabled": true
-      },
-      "neon": {
-        "type": "remote",
-        "url": "https://mcp.neon.tech/mcp?readonly=true",
-        "disabled": true
-      },
-      "vercel": {
-        "type": "remote",
-        "url": "https://mcp.vercel.com",
-        "disabled": true
-      },
-      "cloudflare": {
-        "type": "remote",
-        "url": "https://mcp.cloudflare.com/mcp",
-        "disabled": true
-      },
-      "cloudflare-docs": {
-        "type": "remote",
-        "url": "https://docs.mcp.cloudflare.com/mcp",
-        "oauth": false
-      },
-      "stripe": {
-        "type": "remote",
-        "url": "https://mcp.stripe.com",
-        "disabled": true
-      },
-      "posthog": {
-        "type": "remote",
-        "url": "https://mcp.posthog.com/mcp",
-        "oauth": false,
-        "headers": {
-          "Authorization": "Bearer {env:POSTHOG_PERSONAL_API_KEY}"
-        },
-        "disabled": true
-      },
-      "eslint": {
-        "type": "local",
-        "command": ["npx", "-y", "@eslint/mcp@latest"],
-        "disabled": true
-      },
-      "astryx": {
-        "type": "remote",
-        "url": "https://astryx.atmeta.com/mcp",
-        "disabled": true
-      }
+      "gh_grep": { "type": "remote", "url": "https://mcp.grep.app", "oauth": false },
+      "cloudflare-docs": { "type": "remote", "url": "https://docs.mcp.cloudflare.com/mcp", "oauth": false },
+      "astryx": { "type": "remote", "url": "https://astryx.atmeta.com/mcp", "enable": true },
+      "atlassian": { "type": "remote", "url": "https://mcp.atlassian.com/v2/mcp", "disabled": true },
+      "cloudflare": { "type": "remote", "url": "https://mcp.cloudflare.com/mcp", "disabled": true },
+      "eslint": { "type": "local", "command": ["npx", "-y", "@eslint/mcp@latest"], "enable": true },
+      "figma": { "type": "remote", "url": "https://mcp.figma.com/mcp", "disabled": true },
+      "linear": { "type": "remote", "url": "https://mcp.linear.app/mcp", "disabled": true },
+      "neon": { "type": "remote", "url": "https://mcp.neon.tech/mcp?readonly=true", "disabled": true },
+      "notion": { "type": "remote", "url": "https://mcp.notion.com/mcp", "disabled": true },
+      "posthog": { "type": "remote", "url": "https://mcp.posthog.com/mcp", "oauth": false, "headers": { "Authorization": "Bearer {env:POSTHOG_PERSONAL_API_KEY}" }, "disabled": true },
+      "sentry": { "type": "remote", "url": "https://mcp.sentry.dev/mcp", "disabled": true },
+      "stripe": { "type": "remote", "url": "https://mcp.stripe.com", "disabled": true },
+      "supabase": { "type": "remote", "url": "https://mcp.supabase.com/mcp?read_only=true", "disabled": true },
+      "vercel": { "type": "remote", "url": "https://mcp.vercel.com", "disabled": true }
     }
   }
 }

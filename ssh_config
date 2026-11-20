@@ -1,6 +1,3 @@
-# OpenSSH client settings for the container (installed at /etc/ssh/ssh_config.d/50-opencode.conf).
-# Host keys for github.com, gitlab.com and bitbucket.org are pre-trusted in /etc/ssh/ssh_known_hosts,
-# so git+ssh works without manual confirmation. Authentication uses the keys in ~/.ssh.
 Host *
     ServerAliveInterval 30
     ServerAliveCountMax 3

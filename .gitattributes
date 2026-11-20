@@ -1,3 +1,1 @@
-# Force LF line endings in all text files. CRLF checkouts on Windows break
-# shell scripts and Dockerfiles inside the Linux container.
 * text=auto eol=lf

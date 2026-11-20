@@ -4,12 +4,8 @@ services:
   opencode:
     build:
       context: .
-      args: [NODE_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES]
-    # Pass only what the agent needs. Never use env_file: .env here: that would also
-    # hand n8n/Postgres/SearXNG secrets to every process in this container.
+      args: [NODE_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES, SKILLS_REF]
     environment:
-      # Lets the entrypoint link $HOST_HOME/.ssh -> ~/.ssh inside the container,
-      # so the signingkey path from the host's ~/.gitconfig resolves verbatim
       - HOST_HOME=${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}
       - OPENCODE_PASSWORD=${OPENCODE_PASSWORD:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
@@ -18,7 +14,6 @@ services:
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
       - GIT_SIGNING_KEY=${GIT_SIGNING_KEY:-}
       - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
-      # Stable path so git/ssh processes (including docker compose exec) find the in-container agent.
       - SSH_AUTH_SOCK=/home/opencode/.ssh/agent/agent.sock
       - EXA_API_KEY=${EXA_API_KEY:-}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
@@ -33,26 +28,14 @@ services:
       - opencode-data:/home/opencode/.local/share/opencode
       - opencode-workspace:/home/opencode/workspace
       - opencode-cache:/home/opencode/.cache
-      # Global skills: the skills CLI's canonical store and lock live in ~/.agents
       - opencode-global-skills:/home/opencode/.agents
-      # Host SSH keys (read-only): private keys are loaded into an in-container ssh-agent
-      # on startup and are never copied into the container's writable filesystem.
-      - "${HOME:-${USERPROFILE:-~}}/.ssh:/home/opencode/.ssh-host:ro"
-      # Git identity and SSH signing key, inferred from the host's ~/.gitconfig (read-only).
-      # Optional: .env values (GIT_USER_NAME / GIT_USER_EMAIL / GIT_SIGNING_KEY) take precedence.
-      # The entrypoint also links $HOST_HOME/.ssh -> ~/.ssh (the copy made from .ssh-host), so the
-      # signingkey path from the host config resolves verbatim - no same-path mount needed.
-      - "${HOME:-${USERPROFILE:-~}}/.gitconfig:/home/opencode/.gitconfig-host:ro"
-      # Universal (machine-wide) config: grants every tool for every project.
-      # Mounts over the image's /etc/opencode/opencode.json - edit ./opencode.json and restart to change.
+      - "${HOME:-${USERPROFILE:-/home/opencode}}/.ssh:/home/opencode/.ssh-host:ro"
+      - "${HOME:-${USERPROFILE:-/home/opencode}}/.gitconfig:/home/opencode/.gitconfig-host:ro"
       - ./opencode.json:/etc/opencode/opencode.json:ro
-      # - ${SSH_AUTH_SOCK}:/ssh-agent
-      # - /run/host-services/ssh-auth.sock:/ssh-agent
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     security_opt:
       - no-new-privileges:true
-      - seccomp=builtin
     ulimits:
       nofile:
         soft: 65536

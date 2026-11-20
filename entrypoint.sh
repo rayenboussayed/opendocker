@@ -1,37 +1,45 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 H=/home/opencode
+CFG="$H/.config/git/config"
+UID_N="$(id -u opencode)"
+GID_N="$(id -g opencode)"
+
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
 
 stage_public_ssh_files() {
   local dir="$H/.ssh" f n
   mkdir -p "$dir" && chmod 700 "$dir"
-  if [ -d "$H/.ssh-host" ]; then
-    for f in "$H/.ssh-host"/* "$H/.ssh-host"/.[!.]*; do
-      [ -f "$f" ] || continue
-      n="$(basename "$f")"
-      # Private keys stay on the host and are loaded straight into ssh-agent below.
-      case "$n" in
-        authorized_keys|environment) continue ;;
-        *.pub|known_hosts*|allowed_signers|config) ;;
-        *) continue ;;
-      esac
-      cp -fL "$f" "$dir/$n"
-      chmod 644 "$dir/$n"
-    done
-    log "staged public SSH files from ~/.ssh-host"
-  fi
-  if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
-    local tmp="$dir/.agent-key" pub name=id_ed25519
-    printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$tmp"; chmod 600 "$tmp"
-    if pub="$(ssh-keygen -y -P '' -f "$tmp" 2>/dev/null)"; then
-      case "$pub" in ssh-rsa*) name=id_rsa ;; ecdsa-*) name=id_ecdsa ;; esac
-      printf '%s\n' "$pub" > "$dir/$name.pub"
-      chmod 644 "$dir/$name.pub"
-    fi
-    chown 1000:1000 "$tmp"
-    log "staged SSH_PRIVATE_KEY for ssh-agent"
+  [ -d "$H/.ssh-host" ] || return 0
+  for f in "$H/.ssh-host"/* "$H/.ssh-host"/.[!.]*; do
+    [ -f "$f" ] || continue
+    n="$(basename "$f")"
+    case "$n" in
+      authorized_keys|environment) continue ;;
+      *.pub|known_hosts*|allowed_signers|config) ;;
+      *) continue ;;
+    esac
+    cp -fL "$f" "$dir/$n"
+    chmod 644 "$dir/$n"
+  done
+  log "staged public SSH files"
+}
+
+load_env_key() {
+  local key="${SSH_PRIVATE_KEY:-}" pub name=id_ed25519
+  unset SSH_PRIVATE_KEY
+  [ -n "$key" ] || return 0
+  key="$(printf '%s\n' "$key" | tr -d '\r')"
+  pub="$(printf '%s\n' "$key" | ssh-keygen -y -f /dev/stdin 2>/dev/null || true)"
+  [ -n "$pub" ] || { log "WARNING: SSH_PRIVATE_KEY could not be parsed"; return 0; }
+  case "$pub" in ssh-rsa*) name=id_rsa ;; ecdsa-*) name=id_ecdsa ;; esac
+  printf '%s\n' "$pub" > "$H/.ssh/$name.pub"
+  chmod 644 "$H/.ssh/$name.pub"
+  if printf '%s\n' "$key" | ssh-add - >/dev/null 2>&1; then
+    log "loaded SSH_PRIVATE_KEY into ssh-agent"
+  else
+    log "WARNING: SSH_PRIVATE_KEY could not be loaded into ssh-agent"
   fi
 }
 
@@ -41,27 +49,16 @@ start_ssh_agent() {
   local key
   mkdir -p "$sockdir" && chmod 700 "$sockdir"
   rm -f "$sock"
-  eval "$(ssh-agent -s -a "$sock")" >/dev/null 2>&1
-  export SSH_AUTH_SOCK="$sock"
-
-  # Read private keys directly from the read-only host mount; no private key is
-  # ever written into the container's writable filesystem.
-  for key in "$H/.ssh-host"/id_ed25519 "$H/.ssh-host"/id_rsa "$H/.ssh-host"/id_ecdsa "$H/.ssh-host"/identity; do
-    [ -f "$key" ] || continue
-    if ssh-add "$key" >/dev/null 2>&1; then
-      log "loaded $(basename "$key") into ssh-agent"
-    fi
-  done
-  if [ -f "$H/.ssh/.agent-key" ]; then
-    if ssh-add "$H/.ssh/.agent-key" >/dev/null 2>&1; then
-      log "loaded SSH_PRIVATE_KEY into ssh-agent"
-    fi
-    rm -f "$H/.ssh/.agent-key"
+  if ! eval "$(ssh-agent -s -a "$sock")" >/dev/null 2>&1 || [ ! -S "$sock" ]; then
+    log "WARNING: could not start ssh-agent at $sock"
+    return 0
   fi
-  # Remove any private-key remnants from older setups in the writable key dir.
-  for key in "$H/.ssh"/id_ed25519 "$H/.ssh"/id_rsa "$H/.ssh"/id_ecdsa "$H/.ssh"/identity "$H/.ssh"/.key; do
-    if [ -f "$key" ]; then rm -f "$key"; fi
+  export SSH_AUTH_SOCK="$sock"
+  for key in "$H/.ssh-host"/id_ed25519 "$H/.ssh-host"/id_rsa "$H/.ssh-host"/id_ecdsa "$H/.ssh-host"/identity; do
+    [ -f "$key" ] && ssh-add "$key" >/dev/null 2>&1 && log "loaded $(basename "$key") into ssh-agent"
   done
+  load_env_key
+  rm -f "$H/.ssh"/{id_ed25519,id_rsa,id_ecdsa,identity,.key,.agent-key}
   if ! ssh-add -l >/dev/null 2>&1; then
     log "WARNING: ssh-agent has no keys - git push/signing may fail"
   fi
@@ -71,114 +68,79 @@ seed_base_skill() {
   local src=/opt/opencode-base-skills/find-skills/SKILL.md
   local dir="$H/.config/opencode/skills/find-skills"
   [ -f "$src" ] || return 0
-  if [ ! -f "$dir/SKILL.md" ]; then
-    mkdir -p "$dir"
-    cp -f "$src" "$dir/SKILL.md"
-    chown -R 1000:1000 "$dir"
-    log "seeded find-skills into ~/.config/opencode/skills"
-  fi
+  [ -f "$dir/SKILL.md" ] && return 0
+  mkdir -p "$dir"
+  cp -f "$src" "$dir/SKILL.md"
+  chown -R "$UID_N:$GID_N" "$dir"
+  log "seeded find-skills"
 }
 
-if [ "$(id -u)" = 0 ]; then
-  for d in .agents .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
-    if [ -d "$H/$d" ] && [ "$(stat -c %u "$H/$d")" = 0 ]; then chown -R 1000:1000 "$H/$d"; log "fixed ownership of ~/$d"; fi
-  done
-  stage_public_ssh_files
-  chown -R 1000:1000 "$H/.ssh"
-  seed_base_skill
-  # Expose the staged public keys at the host's real path, so git (and the host's
-  # ~/.gitconfig signingkey, absolute or ~) finds them where the host config expects.
-  case "${HOST_HOME:-}" in
-    ""|/) ;;
-    /*) if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
-          log "linked $HOST_HOME/.ssh -> $H/.ssh"
-        else
-          log "WARNING: could not link $HOST_HOME/.ssh - host signingKey paths will not resolve"
-        fi ;;
-    *) log "WARNING: HOST_HOME=$HOST_HOME is not an absolute path - ignoring" ;;
-  esac
-  export HOME="$H" USER=opencode LOGNAME=opencode SHELL=/bin/bash
-  exec setpriv --reuid=1000 --regid=1000 --init-groups "$0" "$@"
-fi
-
-export HOME="$H"
-[ "${USER:-}" = opencode ] || stage_public_ssh_files
-start_ssh_agent
-
-cfg="$H/.config/git/config"
-mkdir -p "$(dirname "$cfg")"
-printf '[init]\n\tdefaultBranch = main\n[safe]\n\tdirectory = *\n' > "$cfg"
-
-# Fall back to the host's ~/.gitconfig (mounted read-only at .gitconfig-host) for the
-# identity and signing key when .env doesn't provide them. Explicit env values win.
-hostcfg="$H/.gitconfig-host"
-from_host=""
-if [ -f "$hostcfg" ]; then
-  if [ -z "${GIT_USER_NAME:-}" ];  then GIT_USER_NAME="$(git config --file "$hostcfg" user.name      2>/dev/null || true)";  from_host=1; fi
-  if [ -z "${GIT_USER_EMAIL:-}" ]; then GIT_USER_EMAIL="$(git config --file "$hostcfg" user.email    2>/dev/null || true)"; from_host=1; fi
-  if [ -z "${GIT_SIGNING_KEY:-}" ]; then GIT_SIGNING_KEY="$(git config --file "$hostcfg" user.signingkey 2>/dev/null || true)"; from_host=1; fi
-  # Host ~/.gitconfig may use ~ for the signing key; the entrypoint links $HOST_HOME/.ssh to $H/.ssh,
-  # so both absolute host paths and this expansion resolve to the container's copy verbatim.
-  case "${GIT_SIGNING_KEY:-}" in
-    '~/'*) if [ -n "${HOST_HOME:-}" ]; then GIT_SIGNING_KEY="${HOST_HOME}${GIT_SIGNING_KEY#'~'}"; fi ;;
-  esac
-fi
-[ -n "${GIT_USER_NAME:-}" ]  && git config --file "$cfg" user.name "$GIT_USER_NAME"
-[ -n "${GIT_USER_EMAIL:-}" ] && git config --file "$cfg" user.email "$GIT_USER_EMAIL"
-[ -n "$from_host" ] && log "git identity read from host ~/.gitconfig"
-if [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
-  git config --file "$cfg" credential.https://github.com.helper '!gh auth git-credential'
-fi
-
-if [ -n "${GIT_SIGNING_KEY:-}" ]; then
-  k="$GIT_SIGNING_KEY" signing="" pub="" agent_keys=""
+configure_signing() {
+  local k="$GIT_SIGNING_KEY" signing="" pub="" agent_keys="" p email
   [ -n "${SSH_AUTH_SOCK:-}" ] && agent_keys="$(ssh-add -L 2>/dev/null | grep -v '^The agent' || true)"
   case "$k" in
-    agent)              pub="$(head -n1 <<<"$agent_keys")"; [ -n "$pub" ] && signing="key::$pub" ;;
-    key::*)             pub="${k#key::}"; signing="$k" ;;
+    agent) pub="$(head -n1 <<<"$agent_keys")"; [ -n "$pub" ] && signing="key::$pub" ;;
+    key::*) pub="${k#key::}"; signing="$k" ;;
     ssh-*|ecdsa-*|sk-*) pub="$k"; signing="key::$k" ;;
     *)
-      p="${k/#\~/$H}"; [ "${p:0:1}" = / ] || p="$H/.ssh/$p"
+      p="${k/#\~/$H}"
+      [ "${p:0:1}" = / ] || p="$H/.ssh/$p"
       if [ "${p%.pub}" != "$p" ]; then
-        pub="$(cat "$p" 2>/dev/null || true)"; signing="$p"
-        if ! grep -qF "$(awk '{print $2}' <<<"$pub")" <<<"$agent_keys" && [ -f "${p%.pub}" ]; then signing="${p%.pub}"; fi
+        pub="$(cat "$p" 2>/dev/null || true)"
+        signing="$p"
+        if [ -n "$pub" ] && ! grep -qF "$(awk '{print $2}' <<<"$pub")" <<<"$agent_keys" && [ -f "${p%.pub}" ]; then
+          signing="${p%.pub}"
+        fi
       elif [ -f "$p" ]; then
-        signing="$p"; pub="$(cat "$p.pub" 2>/dev/null || ssh-keygen -y -P '' -f "$p" 2>/dev/null || true)"
+        signing="$p"
+        pub="$(cat "$p.pub" 2>/dev/null || ssh-keygen -y -P '' -f "$p" 2>/dev/null || true)"
       fi ;;
   esac
-  if [ -n "$signing" ] && [ -n "$pub" ]; then
-    git config --file "$cfg" gpg.format ssh
-    git config --file "$cfg" user.signingkey "$signing"
-    git config --file "$cfg" commit.gpgsign true
-    git config --file "$cfg" tag.gpgsign true
-    email="$(git config --get user.email || echo '*')"
-    printf '%s namespaces="git" %s\n' "$email" "$(awk '{print $1" "$2}' <<<"$pub")" > "$H/.config/git/allowed_signers"
-    git config --file "$cfg" gpg.ssh.allowedSignersFile "$H/.config/git/allowed_signers"
-    log "commit signing enabled ($(awk '{print $1}' <<<"$pub") key)"
-  else
-    log "WARNING: GIT_SIGNING_KEY=$GIT_SIGNING_KEY could not be resolved - commits will not be signed"
+  if [ -z "$signing" ] || [ -z "$pub" ]; then
+    log "WARNING: GIT_SIGNING_KEY could not be resolved - commits will not be signed"
+    return 0
   fi
-fi
+  git config --file "$CFG" gpg.format ssh
+  git config --file "$CFG" user.signingkey "$signing"
+  git config --file "$CFG" commit.gpgsign true
+  git config --file "$CFG" tag.gpgsign true
+  email="$(git config --get user.email || echo '*')"
+  printf '%s namespaces="git" %s\n' "$email" "$(awk '{print $1" "$2}' <<<"$pub")" > "$H/.config/git/allowed_signers"
+  git config --file "$CFG" gpg.ssh.allowedSignersFile "$H/.config/git/allowed_signers"
+  log "commit signing enabled ($(awk '{print $1}' <<<"$pub") key)"
+}
 
-# Keep a local, signed snapshot of every skills update. Never blocks startup.
+configure_git() {
+  local hostcfg="$H/.gitconfig-host" from_host=""
+  mkdir -p "$(dirname "$CFG")"
+  git config --file "$CFG" init.defaultBranch main
+  git config --file "$CFG" safe.directory '*'
+  if [ -f "$hostcfg" ]; then
+    if [ -z "${GIT_USER_NAME:-}" ]; then GIT_USER_NAME="$(git config --file "$hostcfg" user.name 2>/dev/null || true)"; from_host=1; fi
+    if [ -z "${GIT_USER_EMAIL:-}" ]; then GIT_USER_EMAIL="$(git config --file "$hostcfg" user.email 2>/dev/null || true)"; from_host=1; fi
+    if [ -z "${GIT_SIGNING_KEY:-}" ]; then GIT_SIGNING_KEY="$(git config --file "$hostcfg" user.signingkey 2>/dev/null || true)"; from_host=1; fi
+    case "${GIT_SIGNING_KEY:-}" in
+      '~/'*) [ -n "${HOST_HOME:-}" ] && GIT_SIGNING_KEY="${HOST_HOME}${GIT_SIGNING_KEY#'~'}" ;;
+    esac
+  fi
+  if [ -n "${GIT_USER_NAME:-}" ]; then git config --file "$CFG" user.name "$GIT_USER_NAME"; fi
+  if [ -n "${GIT_USER_EMAIL:-}" ]; then git config --file "$CFG" user.email "$GIT_USER_EMAIL"; fi
+  if [ -n "$from_host" ]; then log "git identity read from host ~/.gitconfig"; fi
+  if [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+    git config --file "$CFG" credential.https://github.com.helper '!gh auth git-credential'
+  fi
+  if [ -n "${GIT_SIGNING_KEY:-}" ]; then configure_signing; fi
+}
+
 refresh_skills_snapshot() {
   local repo="$H/.agents" msg
-
-  if ! npx -y skills update -g -y; then
-    log "WARNING: skills update failed - keeping the previous snapshot"
-    return 0
-  fi
-
+  env -u GH_TOKEN -u GITHUB_TOKEN -u OPENCODE_API_KEY -u OPENCODE_PASSWORD \
+    -u POSTHOG_PERSONAL_API_KEY npx -y skills update -g -y \
+    || { log "WARNING: skills update failed - keeping the previous snapshot"; return 0; }
   mkdir -p "$repo" || { log "WARNING: cannot create $repo"; return 0; }
-  if [ ! -d "$repo/.git" ]; then
-    git -C "$repo" init -q || { log "WARNING: could not init skills git repo"; return 0; }
-  fi
-
+  [ -d "$repo/.git" ] || git -C "$repo" init -q || { log "WARNING: could not init skills git repo"; return 0; }
   git -C "$repo" add -A || { log "WARNING: could not stage skills changes"; return 0; }
-  if git -C "$repo" diff --cached --quiet; then
-    return 0
-  fi
-
+  git -C "$repo" diff --cached --quiet && return 0
   msg="skills: auto-update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if git -C "$repo" commit -q -m "$msg"; then
     log "committed skills snapshot: $msg"
@@ -187,9 +149,33 @@ refresh_skills_snapshot() {
   fi
 }
 
-# The updater clones many repositories, which can take minutes. Run it in the background so
-# the server starts immediately; its output and snapshot commit go to a log file.
+if [ "$(id -u)" = 0 ]; then
+  for d in .agents .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
+    [ -d "$H/$d" ] || continue
+    [ "$(stat -c %u "$H/$d")" = "$UID_N" ] || chown -R "$UID_N:$GID_N" "$H/$d"
+  done
+  stage_public_ssh_files
+  chown -R "$UID_N:$GID_N" "$H/.ssh"
+  seed_base_skill
+  case "${HOST_HOME:-}" in
+    ""|/|"$H") ;;
+    /*)
+      if [ "$HOST_HOME" != "$H" ]; then
+        if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
+          log "linked $HOST_HOME/.ssh -> $H/.ssh"
+        else
+          log "WARNING: could not link $HOST_HOME/.ssh - host signingKey paths will not resolve"
+        fi
+      fi ;;
+    *) log "WARNING: HOST_HOME=$HOST_HOME is not an absolute path - ignoring" ;;
+  esac
+  export HOME="$H" USER=opencode LOGNAME=opencode SHELL=/bin/bash
+  exec setpriv --reuid="$UID_N" --regid="$GID_N" --init-groups "$0" "$@"
+fi
+
+export HOME="$H"
+start_ssh_agent
+configure_git
 ( refresh_skills_snapshot ) > "$H/.local/share/opencode/skills-update.log" 2>&1 &
 log "skills refresh started in background (~/.local/share/opencode/skills-update.log)"
-
 exec "$@"

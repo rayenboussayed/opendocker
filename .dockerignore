@@ -1,8 +1,2 @@
-# Build context hygiene + secrets safety
 .git
-.env
-.env.mcp
-*.tgz
-.github
-tests
-node_modules
+.env*

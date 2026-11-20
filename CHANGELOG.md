@@ -18,11 +18,11 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   signature verification, `gh` usage and a FAQ [1504b5e].
 - `CHANGELOG.md` (this file).
 - OpenCode Console and OpenCode Go documentation: `opencode/<model>` and `opencode-go/<model>` prefixes,
-  `OPENCODE_API_KEY` passing via `env_file`, saved `/connect` account precedence [0e74b9e].
+  `OPENCODE_API_KEY` passing through the explicit `environment:` allowlist, saved `/connect` account precedence [0e74b9e].
 - Expanded MCP stack: local servers `sequentialthinking`, `playwright`, `fetch`, `time`, `duckduckgo`,
   `markitdown`, `wikipedia-mcp`, `next-devtools-mcp`, `npm-sentinel`, `memory`, `aws-documentation`,
   `github-official`; remote servers proxied by the gateway `context7`, `deepwiki`, `microsoft-learn`;
-  about 140 tools visible to the agent in total [0e74b9e] [cddb0a1].
+  roughly 137 gateway tools, about 140 including the direct remotes [0e74b9e] [cddb0a1].
 - `gh_grep` (public GitHub code search) and `cloudflare-docs` (direct remote) enabled by default;
   `cloudflare-docs` points at `https://docs.mcp.cloudflare.com/mcp` [0e74b9e].
 - `memory` MCP server; its knowledge graph persists in the Docker-managed `claude-memory` volume, shared
@@ -33,15 +33,15 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - Initial `docker-compose.mcp.yml` with the Docker MCP Gateway, wired into the agent via `opencode.json` [91bd0de].
 - Universal config `opencode.json` mounted read-only at `/etc/opencode/opencode.json`: machine-wide, outranks
   global and project configs, allows every tool action and loads `AGENTS.md` [2fe292c].
-- Docker image built from `platformatic/node-caged:slim` (Node.js 26) with OpenCode 2 installed from npm;
-  Python 3.13, FFmpeg, git, git-lfs, GitHub CLI, `sudo`, `jq`, `yq`, ripgrep, `fd`, `sqlite3` and more [2fe292c].
-- Host-based git setup: `~/.ssh` and `~/.gitconfig` mounted read-only, keys copied in at start with fixed
-  ownership and permissions, pre-trusted host keys for GitHub/GitLab/Bitbucket, `ssh_config` and
+- Docker image built from `platformatic/node-caged:slim` with OpenCode 2 installed from npm;
+  Python, FFmpeg, git, git-lfs, GitHub CLI, `jq`, `yq`, ripgrep, `fd`, `sqlite3` and more [2fe292c].
+- Host-based git setup: `~/.ssh` and `~/.gitconfig` mounted read-only, public keys staged and private keys loaded
+  into an in-container agent, pre-trusted host keys for GitHub/GitLab/Bitbucket, `ssh_config` and
   `ssh_known_hosts` baked into the image [2fe292c].
 - Resolve host `~/.gitconfig` signing paths inside the container via a symlinked `$HOST_HOME/.ssh` → `~/.ssh` [bef4b5c].
 - Named volumes for sessions, config, workspace and cache; port published on `127.0.0.1` only; resource limits
   (4,096 processes, 8 GB memory) [2fe292c].
-- `Makefile` targets: `run`, `run-clean`, `build`, `down`, `clean` [2fe292c].
+- `Makefile` targets: `run`, `run-clean`, `run-opencode-clean`, `run-n8n-clean`, `build`, `down`, `clean` [2fe292c].
 - MCP stack included in the default flow: `make run` starts it alongside OpenCode; `make down` and
   `make clean` handle both stacks [98c6ff9].
 
@@ -55,8 +55,13 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - Default web UI port changed from 4001 to 4000; MCP gateway memory limit raised to 4 GB [273ee8c].
 - Cross-platform support (Linux, macOS, Windows): LF line endings via `.gitattributes`, `HOME`/`USERPROFILE`
   interpolation with `HOST_HOME` override, Docker Desktop/WSL2 guidance in the docs [9ace648].
-- `Makefile` `.PHONY` trimmed to the real targets (`run`, `run-clean`, `build`, `down`, `clean`) [946ab2d].
+- `Makefile` `.PHONY` trimmed to the real targets (`run`, `run-clean`, `run-opencode-clean`, `run-n8n-clean`, `build`,
+  `down`, `clean`) [946ab2d].
 - `websearch.provider` set to `random` (no credentials; see the `EXA_API_KEY` family of variables) [0e74b9e].
+- Deep refactor: the Dockerfile, entrypoint, three compose files, Makefile and `opencode.json` were simplified and
+  stripped of inline comments; rationale now lives in the README's "Design decisions & rationale" section. The
+  entrypoint gained named functions, the n8n stack uses a YAML anchor for shared hardening, disabled MCP servers are
+  one-line stubs and `.dockerignore` uses an `.env*` glob. Healthchecks were added for n8n and wired for SearXNG.
 
 ### Removed
 
@@ -69,20 +74,31 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 
 - `.env.example` restored after being dropped by accident in the Makefile change [fe69e48].
 - `ssh_known_hosts` regenerated (github/gitlab/bitbucket) [273ee8c].
+- `SSH_PRIVATE_KEY` is piped into ssh-agent instead of being staged as a file, and is unset immediately after loading;
+  a self-referential `$HOST_HOME/.ssh` symlink is avoided; an empty public key no longer defeats the signing fallback.
+- `.env.example` now explains that `N8N_POSTGRES_PASSWORD` must be set; README's `env_file`, service-scope,
+  plain-compose and "everything else can stay as-is" claims were corrected, and the nonexistent `rebuild-nan-addons`
+  helper was removed from the docs.
+- AGENTS.md's stale claims about published ports, the SSH key install path and the unauthenticated gateway were fixed;
+  its duplicated FAQ entries and skills tables were consolidated.
 
 ### Security
 
-- OpenCode has no sudo or system package manager at runtime; `no-new-privileges: true` is now set on every service,
-  including OpenCode, and its capability set was reduced to what the startup drop to the agent user requires.
-- Private SSH keys are loaded from the read-only host mount straight into an in-container `ssh-agent` and never written
-  to the container's writable filesystem. Git transport and SSH commit/tag signing work through the agent.
+- OpenCode has no sudo or system package manager at runtime; `no-new-privileges: true` is set on every service, and its
+  capability set is limited to what the startup drop to the agent user requires [6b3bc43].
+- Private SSH keys are loaded from the read-only host mount straight into an in-container `ssh-agent`; a key supplied
+  via `SSH_PRIVATE_KEY` is piped in on stdin, so no private-key file is created. Git transport and SSH signing work
+  through the agent [6b3bc43].
 - OpenCode receives an explicit allowlist of environment variables instead of the whole `.env`, so n8n/Postgres/SearXNG
-  secrets never enter the agent container.
+  secrets never enter the agent container [6b3bc43].
+- The automatic skills refresh runs without `GH_TOKEN`, `OPENCODE_API_KEY`, `OPENCODE_PASSWORD` or the PostHog key;
+  it keeps the SSH agent only to sign its local snapshot commit. The docs now state plainly that mounted host keys
+  remain readable by the same UID and that the unauthenticated MCP gateway holds the Docker socket.
 - The gateway runs with `cap_drop: [ALL]`, a 4 GB memory limit and publishes on `127.0.0.1` only; the Docker
   socket is mounted into the gateway (its control plane) and never into the OpenCode container [91bd0de]
   [0e74b9e] [946ab2d].
-- Gateway catalog servers are pinned to digests and signature-verified by the gateway; the agent container drops
-  all capabilities except those sudo, apt and the startup script need [2fe292c] [91bd0de].
+- Gateway catalog servers are pinned to digests and signature-verified by the gateway; the agent container drops all
+  capabilities except the five needed for `chown` and the `setpriv` drop to the agent user [2fe292c] [91bd0de].
 - `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
 - MCP endpoints are unauthenticated but bind to loopback only; direct remote endpoints enabled by default send
   queries to Grep/grep.app, Cloudflare Docs, Context7, DeepWiki and Microsoft Learn [ed5290f] [0e74b9e].
@@ -101,3 +117,4 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 [91bd0de]: https://github.com/rayenboussayed/opendocker/commit/91bd0de49aa42fff7fe1a2e90d5b1b25f6a48ee6
 [bef4b5c]: https://github.com/rayenboussayed/opendocker/commit/bef4b5c9f7777b961eb786b48b7890974387c0a1
 [2fe292c]: https://github.com/rayenboussayed/opendocker/commit/2fe292c6543298a3aa7923f480bbdc897f23b055
+[6b3bc43]: https://github.com/rayenboussayed/opendocker/commit/6b3bc4304986168a7ade0cbdb1f971cdcfd372e6

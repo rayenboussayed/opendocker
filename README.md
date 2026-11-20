@@ -3,6 +3,7 @@
 **OpenCode 2 in one command.** An AI coding agent with real tools — git, GitHub, browsers, docs — running in a box on your computer.
 
 *New here? Read [What is this?](#what-is-this) then [Set it up in 3 steps](#set-it-up-in-3-steps).*
+*Want to know why it's built this way? See [Design decisions & rationale](#design-decisions--rationale).*
 
 **Contents**
 
@@ -12,9 +13,11 @@
 - [Set it up in 3 steps](#set-it-up-in-3-steps) · [Your first 10 minutes](#your-first-10-minutes)
 - [Commands](#commands) · [Configuration](#configuration) · [What's inside](#whats-inside)
 - [Your projects: how they get in](#your-projects-how-they-get-in) · [Is it safe?](#is-it-safe)
+- [Design decisions & rationale](#design-decisions--rationale)
 - [MCP servers](#mcp-servers) · [n8n, PostgreSQL, and SearXNG](#n8n-postgresql-and-searxng)
 - [Universal config](#universal-config) · [AGENTS.md](#agentsmd)
 - [SSH and commit signing](#ssh-and-commit-signing) · [Every platform](#every-platform)
+- [Moving from nimbleflux/opencode-docker](#moving-from-nimblefluxopencode-docker-opencode-1)
 - [Troubleshooting](#troubleshooting) · [Known limitations](#known-limitations) · [Learn more](#learn-more)
 
 ## What is this?
@@ -24,30 +27,21 @@ the agent reads your code, edits files, runs commands and answers questions. It'
 month, works with 200+ models (including free ones), and runs in your desktop app, your terminal, your phone — or in
 your browser, next to your code.
 
-The catch: an agent that can run commands on your machine can also do real damage.
-
-This repo is the answer: a ready-to-use [Docker](https://www.docker.com/what-docker/) setup that boxes OpenCode
-together with everything it needs — Node.js, Python, FFmpeg, git, GitHub CLI, and about 140 ready-made tools (browser
-control, documentation search, GitHub, web search) — and starts it with one command. The agent gets an isolated
-sandbox where it can work freely; your system stays yours.
-
-Think of it as **a private workshop for the AI**: it has a workbench, tools and the materials it needs, but the door
-to the rest of your house stays shut.
+The catch: an agent that can run commands on your machine can also do real damage. This repo boxes OpenCode in a
+[Docker](https://www.docker.com/what-docker/) container with its tools and an isolated workspace, so it can work
+freely while your system stays yours. See [Is it safe?](#is-it-safe) for the honest limits.
 
 It replaces [nimbleflux/opencode-docker](https://github.com/nimbleflux/opencode-docker) and carries your existing
-sessions over.
+sessions over — see [Moving from OpenCode 1](#moving-from-nimblefluxopencode-docker-opencode-1).
 
 ## Why you'll love it
 
-- **One command.** `make run` builds (only the first time) and starts everything. No recipe hunting, no config files to get right by hand.
-- **Batteries included.** Node.js 26, Python 3.13, FFmpeg 7.1, git, GitHub CLI, `gh`, `jq`, `yq`, ripgrep and more — preinstalled and preconfigured.
-- **Sign in and go.** A local web UI at `http://localhost:4000` with a password you choose.
-- **Works with your models.** Free models included, or OpenCode Go ($10/month), the pay-as-you-go Console, your own API key (OpenAI, Anthropic, …), or a subscription you already have (ChatGPT Plus, Copilot).
-- **Superpowers out of the box.** The MCP stack ships with browser automation, documentation search (AWS, Cloudflare, Microsoft), GitHub, web search, npm analysis, a code search engine and more.
-- **Git done right.** Your SSH keys are used as-is, commits and tags are signed with your SSH key, and the agent is told how to use them — verification included.
-- **Yours forever.** Sessions, settings and workspace persist across restarts and upgrades. Nothing is lost when you update.
-- **Private by default.** Everything listens on `127.0.0.1` — your machine only.
-- **Open source.** The agent is OpenCode (open source), the glue is right here in this repo.
+- **One command.** `make run` starts the whole stack — see [Commands](#commands).
+- **Batteries included.** Node.js, Python, FFmpeg, git, GitHub CLI and roughly 140 MCP tools — see [What's inside](#whats-inside) and [MCP servers](#mcp-servers).
+- **Your models, your choice.** Free models, OpenCode Console/Go, or your own keys — see [Configuration](#configuration).
+- **Yours and private.** Sessions persist in volumes and every published port binds to `127.0.0.1` — see [Your projects](#your-projects-how-they-get-in) and [Is it safe?](#is-it-safe).
+
+Git works out of the box too: SSH keys and signed commits are covered in [SSH and commit signing](#ssh-and-commit-signing).
 
 ## What to know first
 
@@ -58,9 +52,8 @@ sessions over.
   [Check the terms](https://www.docker.com/pricing/).
 - **It is not a perfect security sandbox.** The container shares the host kernel, can reach the internet and your
   local network, and can use any keys or tokens you pass in. See [Is it safe?](#is-it-safe).
-- **Debian's `gh` is older** (2.46) than the latest upstream. Everything the agent needs works, but don't expect brand-new `gh` features.
-- **It's built for Linux, macOS and Windows.** Built and tested on amd64; arm64 should work (all images are multi-arch) but is untested.
-- **Packages the agent installs disappear on recreate.** Add them to `PACKAGES` in `.env` to make them permanent.
+- **It runs on Linux, macOS and Windows** — see [Every platform](#every-platform).
+- **Runtime installs disappear on recreate.** Add Debian packages to `PACKAGES`, npm tools to `NPM_PACKAGES` and Python tools to `PIP_PACKAGES` in `.env`, then rebuild.
 
 ## Use cases
 
@@ -157,12 +150,14 @@ No git? On the repo page, click the green **Code** button → **Download ZIP**, 
 **Step 2 — configure (one time only).**
 
 ```bash
-cp .env.example .env              # your settings; set a password
+cp .env.example .env              # your settings; set a password and the n8n/SearXNG secrets
 cp .env.mcp.example .env.mcp      # optional extras for the MCP tool servers
-chmod 600 .env.mcp                # keeps your MCP keys private (skip on Windows/unsupported)
+chmod 600 .env .env.mcp           # keep both private (skip on Windows/unsupported)
 ```
 
-Open `.env` in any editor. The one setting worth changing is `OPENCODE_PASSWORD` — set it to something you'll remember. Everything else can stay as-is.
+Open `.env` in any editor. Set `OPENCODE_PASSWORD` to something you'll remember, and fill in `N8N_ENCRYPTION_KEY`,
+`N8N_POSTGRES_PASSWORD` and `SEARXNG_SECRET` (each has a generation hint in the template). Leave the rest as-is. If you
+only run the OpenCode + MCP subset (`make run-opencode-clean`), these secrets can stay blank.
 
 **Step 3 — start.**
 
@@ -173,7 +168,7 @@ make run
 Or, without `make` (this is the command `make run` wraps):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml up
 ```
 
 The first run downloads a few GB and can take a few minutes. When you see the server start, open
@@ -232,26 +227,22 @@ on your laptop. Three ways to give it your code:
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `make run` | Starts OpenCode and the MCP stack. Builds the image only if it doesn't exist yet. Ctrl+C stops; your data stays. |
-| `make run-clean` | Builds a fresh image (latest base, no cache) and starts. Use after pulling repo updates. |
-| `make run-opencode-clean` | Fresh OpenCode image; starts only OpenCode and its MCP gateway. |
-| `make run-n8n-clean` | Fresh OpenCode image; starts OpenCode, its MCP gateway, n8n and SearXNG (Postgres follows via `depends_on`). |
-| `make build` | Builds the image without starting. |
-| `make down` | Stops and removes the OpenCode and MCP containers. Data stays. |
-| `make clean` | Same, plus removes the image. Data stays. |
+`make run` is the normal choice: it starts all five containers. The `*-clean` variants rebuild the image first and
+can start a smaller set.
 
-None of these delete your sessions or workspace — those live in Docker volumes. They persist across rebuilds.
+| Target | Services started | Without `make` |
+|---|---|---|
+| `make run` | all five | `docker compose $COMPOSE up` |
+| `make run-clean` | all five, fresh image | build, then `… up` |
+| `make run-opencode-clean` | OpenCode + MCP gateway, fresh image | `… up opencode mcp-gateway` |
+| `make run-n8n-clean` | those plus n8n + SearXNG; Postgres follows via `depends_on`, fresh image | `… up opencode mcp-gateway n8n searxng` |
+| `make build` | build only | `… build --pull --no-cache` |
+| `make down` | stops all five | `… down --remove-orphans` |
+| `make clean` | stops all five, removes local images | `… down --rmi local --remove-orphans` |
 
-No `make`? The portable equivalent of `make run` is:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
-```
-
-`down` is `… down --remove-orphans`; `build` is `… build --pull --no-cache`; `clean` is `… down --rmi local --remove-orphans`.
-If you aren't in the `docker` group, the Makefile uses `sudo` for you.
+Here `$COMPOSE` is `-f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml`. Data lives in named
+volumes, so none of these delete your sessions or workspace. Ctrl+C stops a foreground run; the Makefile's `trap`
+runs the cleanup target on exit, even on failure. If you aren't in the `docker` group, the Makefile uses `sudo`.
 
 ## Configuration
 
@@ -268,11 +259,14 @@ which is ignored and is never passed to OpenCode.
 | `OPENCODE_API_KEY` | Optional: OpenCode Console pay-as-you-go and OpenCode Go key; models appear as `opencode/<model>` or `opencode-go/<model>` |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from your `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from your `~/.gitconfig` |
-| `SSH_PRIVATE_KEY` | Private key contents; loaded into the in-container ssh-agent at start, never written to disk |
+| `SSH_PRIVATE_KEY` | Private key contents; piped into the in-container ssh-agent at start — no private-key file is created |
+| `HOST_HOME` | Home directory on the host, used to resolve signing-key paths (default: `HOME`, then `USERPROFILE`) |
 | `GH_TOKEN` | `gh` and HTTPS git for github.com |
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
+| `MCP_GATEWAY_PORT` | Host port for the MCP gateway (default `8200`; internal port is fixed at `8080`) |
 | `NODE_TAG` | Build: base image tag (default `slim`) |
+| `SKILLS_REF` | Build: git ref for the baked-in `find-skills` skill (default `main`) |
 | `NPM_PACKAGES`, `PIP_PACKAGES` | Build: extra global tools |
 | `PACKAGES` | Build: replaces the default Debian package list |
 
@@ -288,9 +282,9 @@ Versions are resolved when the image is built, so `make run-clean` (or `make bui
 OPENCODE_API_KEY=oc_sk_...
 ```
 
-Docker Compose passes `.env` to the OpenCode server with `env_file`; the built-in `opencode` and `opencode-go`
-integrations both read `OPENCODE_API_KEY`. No `opencode.json`, Dockerfile or MCP credential entry is required, and
-`OPENCODE_API_KEY` does not belong in `.env.mcp`.
+Compose injects `.env` values through an explicit `environment:` allowlist — it never uses `env_file: .env`, so n8n
+and SearXNG secrets stay out of the agent container. Both built-in integrations read `OPENCODE_API_KEY`. No
+`opencode.json`, Dockerfile or MCP credential entry is required, and the key does not belong in `.env.mcp`.
 
 Recreate the container after changing the key, then open `/models` and select:
 
@@ -307,6 +301,9 @@ To use the OpenCode terminal client against the container's server:
 docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 ```
 
+This works when `OPENCODE_PASSWORD` is fixed in `.env`; with the default generated password, pass it explicitly with
+`docker compose exec -e OPENCODE_PASSWORD=… -u opencode opencode …`.
+
 ## What's inside
 
 | | Comes from |
@@ -317,16 +314,15 @@ docker compose exec -u opencode opencode opencode --server http://127.0.0.1:4000
 | FFmpeg 7.1 + `ffprobe`/`ffplay` | Debian (`apt`) |
 | git, git-lfs, gh, ssh, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
 
-That's the whole install: one `apt-get install` line, npm/pip upgraded to their latest releases, and one
-`npm install` line.
+That's the whole install: one `apt-get install` line, npm/pip upgraded to latest, and one npm install for OpenCode.
 
 ### About node-caged
 
 node-caged is Node.js built with V8 pointer compression, which roughly halves the memory of JavaScript objects.
 - **What it helps:** the Node processes the agent starts, such as MCP servers, dev servers and test runners.
 - **What it doesn't:** OpenCode itself, which is a native binary.
-- **Limits:** each Node process's heap is capped at 4 GB. N-API native addons work, but addons built on the older NAN
-  API (e.g. `better-sqlite3`) can crash and need rebuilding with the included `rebuild-nan-addons`.
+- **Limits:** each Node process's heap is capped at 4 GB. N-API native addons work; addons built on the older NAN API
+  (e.g. `better-sqlite3`) can crash and need rebuilding against the image's Node headers.
 - **Harmless warning:** npm prints `Unknown env config "nodedir"`. It comes from the base image, which sets it so
   rebuilt addons use the right headers.
 
@@ -353,38 +349,90 @@ Cross-platform notes:
 
 ## Is it safe?
 
-Short version: **reasonable precautions, not a fortress.** The agent runs as the unprivileged `opencode` user
-with no sudo and no system package manager at runtime:
+Short version: **reasonable precautions, not a fortress.** The agent runs as the unprivileged `opencode` user with no
+sudo and no system package manager at runtime. Read the details in
+[Design decisions & rationale](#design-decisions--rationale).
 
-- **Minimal kernel privileges.** All capabilities are dropped and only the ones the startup script needs to drop
-  from root to the agent user are added back. The agent can't mount filesystems, create namespaces, chroot, open raw
-  sockets, create device nodes, change kernel settings or read the kernel log.
-- **No new privileges.** `no-new-privileges: true` is set on every service, including OpenCode, so setuid escalation
-  inside the container is blocked.
-- **No host access.** No Docker socket; only named volumes plus the read-only `~/.ssh` and `~/.gitconfig` mounts.
-  Private SSH keys are loaded into an in-container `ssh-agent` and never written to the container's disk.
-- **Loopback only.** The port is published on `127.0.0.1`.
-- **Resource limits.** 4,096 processes and 8 GB of memory.
-- Docker's default seccomp and AppArmor profiles stay on.
-- **Minimal secret exposure.** Only agent-specific environment variables are passed in; n8n/Postgres/SearXNG secrets
-  never enter this container.
-- **Package install scripts are allowed.** npm 12's script blocking is disabled for the build and at runtime
-  (`--dangerously-allow-all-scripts` and `NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS=true`), and pip runs source
-  build backends by default. Third-party install code therefore executes during the image build (no host mounts
-  or secrets in the build context) and, at runtime, inside this restricted container as the non-root `opencode`
-  user — not on your host.
+- **Minimal kernel privileges.** Capabilities are dropped to the few needed for the root-to-agent transition, and
+  `no-new-privileges: true` is set on every service.
+- **No Docker socket in the agent.** The MCP gateway owns the socket as its control plane; it is unauthenticated and
+  reachable from this machine and from sibling containers, so treat gateway access as host-level access.
+- **SSH keys stay host-owned.** No private key is copied into the container's writable filesystem; the in-container
+  agent loads them from a read-only mount. On Linux the mounted keys remain readable by the same UID — use a
+  dedicated deploy key if that matters.
+- **Loopback only.** Published ports bind to `127.0.0.1`; Postgres and SearXNG have no host port.
+- **Resource limits.** OpenCode: 4,096 processes and 8 GB of memory; smaller limits on the other services.
+- **Minimal secret exposure.** Only agent-specific variables pass into the agent container. Keep `.env` and
+  `.env.mcp` at mode `600` — container isolation is only part of the story.
+- **Package install scripts are allowed.** npm 12's script blocking is disabled at build and runtime, and pip runs
+  source build backends. Third-party install code executes during the image build (no secrets in the build context)
+  and at runtime as the non-root `opencode` user. The automatic skills refresh is a notable case — see below.
 
 What this doesn't cover:
 
 - **Network:** the container can reach the internet, your local network, and host services listening on all interfaces.
 - **Kernel:** containers share the host kernel, so a kernel bug could allow an escape.
 - **Secrets:** the agent can use any keys or tokens you pass in.
+- **Supply chain:** the background `npx skills update -g -y` executes third-party code on every start. It runs
+  without `GH_TOKEN`, `OPENCODE_API_KEY` or `OPENCODE_PASSWORD`, but keeps the SSH agent so it can sign its local
+  snapshot commit.
 
 For stronger isolation, run Docker rootless or with `"userns-remap": "default"`. Alternatively, add `runtime: runsc`
 to use [gVisor](https://gvisor.dev).
 
 If you pass the agent credentials, treat what it can do with them as what you can do — it will generally act only
 when you ask, but it can, for example, create branches and PRs on repositories its GitHub token can reach.
+
+## Design decisions & rationale
+
+This is where the "why" notes live. The code files are intentionally comment-light; update this section when behavior
+changes.
+
+- **Privilege drop.** The entrypoint starts as root only to fix volume ownership, stage public SSH files and seed the
+  base skill, then re-execs itself with `setpriv --reuid=1000 --regid=1000`. The restored capabilities exist for that
+  `chown`/`setpriv` transition alone; the long-lived agent retains none of them. `no-new-privileges: true` blocks
+  setuid escalation. *(Dockerfile, entrypoint.sh, docker-compose.yml)*
+
+- **SSH keys.** Private keys are read from the read-only `~/.ssh-host` mount straight into an in-container `ssh-agent`
+  at a fixed socket. A key supplied via `SSH_PRIVATE_KEY` is piped in on stdin and the variable is unset immediately —
+  no private-key file is created. Only public files are staged into writable `~/.ssh`; the filename allowlist is
+  deliberate. `$HOST_HOME/.ssh` is linked to `~/.ssh` so a host `signingkey` path resolves verbatim, and the link is
+  skipped when `HOST_HOME` is the container home to avoid a self-referential symlink. *(entrypoint.sh, docker-compose.yml)*
+
+- **Git identity and signing.** Explicit `.env` values win; the host `~/.gitconfig` is only a fallback. `allowed_signers`
+  is generated locally so `git verify-commit` works. See [SSH and commit signing](#ssh-and-commit-signing).
+
+- **Environment allowlist.** `opencode` lists every variable explicitly instead of using `env_file: .env`, which would
+  hand n8n/Postgres/SearXNG secrets to all processes in the container. `SSH_AUTH_SOCK` is declared in Compose as well
+  as exported by the entrypoint because `docker compose exec` reads the container's environment, not the entrypoint's
+  exports. *(docker-compose.yml)*
+
+- **Install scripts.** npm 12 blocks install scripts by default, so the build passes `--dangerously-allow-all-scripts`
+  and sets `NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS=true`; Debian's pip needs `--ignore-installed`. `.dockerignore`
+  excludes `.git` and `.env*` so no secrets enter the build context. *(Dockerfile, .dockerignore)*
+
+- **MCP gateway.** Catalog-first: the gateway runs what the catalog covers; `opencode.json` lists only gaps and OAuth
+  servers. The gateway owns the Docker socket as its control plane, is published on loopback via `MCP_GATEWAY_PORT`
+  (host `8200` → container `8080`), and the agent never sees the socket. `cloudflare-docs` bypasses the catalog because
+  its SSE endpoint returns 410. *(docker-compose.mcp.yml, opencode.json)*
+
+- **Pinned n8n node.** `n8n-nodes-opencode-v2@0.1.1` is pinned by name, version and npm checksum; the older `ssccio`
+  node targets the removed V1 API. The checksum is why no global `N8N_UNVERIFIED_PACKAGES_ENABLED` flag is needed.
+
+- **n8n storage and search.** Postgres stores workflows and credentials; `PGDATA` is pinned because `postgres:18`
+  changed its default data directory. Required secrets use `${VAR:?…}` guards so a missing `.env` fails fast. The
+  SearXNG settings add the `json` format because the stock image serves only HTML. Healthchecks make n8n wait for
+  Postgres and SearXNG. *(docker-compose.n8n.yml, searxng-settings.yml)*
+
+- **Skills refresh.** A pristine `find-skills` skill is baked into the image and seeded only when missing, so local
+  edits survive. `npx skills update -g -y` runs in the background so the server starts immediately, logs to
+  `skills-update.log`, and commits a signed local snapshot in `~/.agents` as a rollback trail. It never pushes.
+
+- **Persistence.** Named volumes hold sessions, config, workspace, cache and global skills. `claude-memory` is shared
+  across projects and survives `make clean`. See [How do I back up my sessions?](#troubleshooting).
+
+- **node-caged.** Pointer compression halves JavaScript object memory; the trade-off is a 4 GB per-process heap cap and
+  the NAN addon caveat in [About node-caged](#about-node-caged).
 
 ## MCP servers
 
@@ -394,7 +442,7 @@ compose network:
 
 ```bash
 # already done for you by `make run`; shown here for reference
-docker compose -f docker-compose.yml -f docker-compose.mcp.yml up
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml up
 ```
 
 `.env.mcp` is the MCP-only credential file. It is ignored, must remain chmod 600, and contains the Docker MCP catalog
@@ -444,7 +492,10 @@ in-container callback, copy the callback URL into the sign-in prompt instead of 
 configured read-only; keep those flags when enabling them.
 
 Security notes:
-- Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` on the internal compose network. The host port defaults to 8200; override with `MCP_GATEWAY_PORT` in `.env` if needed.
+- Ports publish on `127.0.0.1` only (no LAN exposure); the agent talks to `mcp-gateway` on the internal compose network.
+  The host port defaults to 8200 (`MCP_GATEWAY_PORT` in `.env`); the internal 8080 is fixed. Because the gateway has no
+  authentication and holds the Docker socket, any process on this machine or in this compose project can reach it —
+  treat that as host-level access.
 - The gateway mounts `/var/run/docker.sock` because it *is* the control plane spawning the MCP containers. The agent container never sees the socket.
 - `duckduckgo`, `wikipedia-mcp` and `next-devtools-mcp` are community-maintained (unofficial); the GitHub Official image is GitHub-maintained. Browser MCPs can see and do anything the browser can — treat their output as untrusted input.
 - `websearch.provider` is `random`, but random selection does not provide credentials. Set one of `EXA_API_KEY`, `FIRECRAWL_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY` or `TINYFISH_API_KEY` in `.env`, or connect a provider in `/connect`.
@@ -523,9 +574,10 @@ Restart OpenCode after editing the config.
 
 `opencode.json` in the repo root is mounted read-only over the image's system config, `/etc/opencode/opencode.json`.
 The system config is machine-wide and outranks the global and project configs, so it applies to every project and
-can't be loosened by them. It allows every tool action (`permissions`: `action: *`, `resource: *`, `effect: allow`),
-and keeps the `instructions` entry that loads `AGENTS.md`. Edit it and restart the container to change it — no rebuild
-needed. The same `opencode.json` is baked into the image as `/etc/opencode/opencode.json`, so the behavior doesn't
+can't be loosened by them. It allows every tool action (`action: *`, `effect: allow`) plus an explicit `skill` rule,
+and keeps the `instructions` entry that loads `AGENTS.md`. The broad rule also overrides the default prompts for
+`.env` files; the `skill` rule is kept as an explicit statement of intent. Edit it and restart the container — no
+rebuild needed. The same `opencode.json` is baked into the image as `/etc/opencode/opencode.json`, so the behavior doesn't
 depend on the mount.
 
 ## AGENTS.md
@@ -545,10 +597,11 @@ image to change it (`make run-clean`).
 
 ## SSH and commit signing
 
-SSH keys stay on the host. The entrypoint starts an `ssh-agent` inside the container, loads keys directly from the
-read-only `~/.ssh` mount (or from `SSH_PRIVATE_KEY`), and deletes any private-key copies. Only public keys,
-`known_hosts`, `allowed_signers` and SSH config remain in `~/.ssh`. Git and ssh use `SSH_AUTH_SOCK` automatically —
-no agent forwarding is needed.
+SSH keys stay on the host. The entrypoint starts an `ssh-agent` inside the container and loads host keys directly from
+the read-only mount; a key supplied via `SSH_PRIVATE_KEY` is piped into the agent on stdin, so no private-key file is
+created. Only public keys, `known_hosts`, `allowed_signers` and SSH config remain in the writable `~/.ssh`. On Linux
+the mounted host keys are still readable by the same UID, so a compromised agent could read them — use a dedicated
+deploy key for sensitive repositories. Git and ssh use `SSH_AUTH_SOCK` automatically; no agent forwarding is needed.
 
 Git identity and signing are inferred from the host: the entrypoint reads `user.name`, `user.email` and
 `user.signingkey` from your `~/.gitconfig` (mounted read-only) when the corresponding `.env` values are unset.
@@ -607,7 +660,7 @@ Normal. It's downloading several GB of images. Subsequent starts take seconds. G
 
 **I edited `.env` and nothing changed.**
 `.env` is read only when the containers are created. Stop and start:
-`docker compose -f docker-compose.yml -f docker-compose.mcp.yml down` then `make run`.
+`docker compose -f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml down` then `make run`.
 
 **The agent can't see my project.**
 By default it lives in its own volume. See [Your projects: how they get in](#your-projects-how-they-get-in).
@@ -628,7 +681,8 @@ docker run --rm -v opencode-docker_opencode-data:/d -v "$PWD":/b debian tar czf 
 
 **How do I start completely over?**
 Sessions and workspace live in Docker volumes and survive `make clean`. To erase everything, recreate the volumes:
-`docker compose -f docker-compose.yml -f docker-compose.mcp.yml down -v` — **warning: this deletes your sessions and workspace.** Back up first.
+`docker compose -f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml down -v` — **warning: this
+deletes your sessions and workspace.** Back up first.
 
 **Still stuck?** Open an issue at [github.com/rayenboussayed/opendocker/issues](https://github.com/rayenboussayed/opendocker/issues).
 
