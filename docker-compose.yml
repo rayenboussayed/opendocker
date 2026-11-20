@@ -13,7 +13,7 @@ services:
       # so the signingkey path from the host's ~/.gitconfig resolves verbatim
       - HOST_HOME=${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}
     ports:
-      - "127.0.0.1:${OPENCODE_PORT:-4000}:4000"
+      - "127.0.0.1:4000:4000"
     volumes:
       - opencode-config:/home/opencode/.config/opencode
       - opencode-data:/home/opencode/.local/share/opencode

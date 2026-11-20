@@ -259,8 +259,6 @@ which is ignored and is never passed to OpenCode.
 | Setting | Purpose |
 |---|---|
 | `OPENCODE_PASSWORD` | Password for the web UI and API (username `opencode`) |
-| `OPENCODE_PORT` | Host port (default 4000) |
-| `N8N_PORT` | Host port for the n8n editor (default 5678) |
 | `N8N_ENCRYPTION_KEY` | Encrypts n8n credentials in Postgres. Generate once (`openssl rand -hex 32`) and back it up |
 | `N8N_TIMEZONE` | Timezone for n8n's Schedule node (default `Europe/Paris`) |
 | `N8N_POSTGRES_USER`, `N8N_POSTGRES_PASSWORD`, `N8N_POSTGRES_DB` | n8n's Postgres credentials |
@@ -580,12 +578,13 @@ See OpenCode's [migration guide](https://opencode.ai/docs/migrate-v1).
 ## Troubleshooting
 
 **The page won't open / "connection refused".**
-Is Docker running? Is the container up? `docker compose -f docker-compose.yml -f docker-compose.mcp.yml ps` — look for
+Is Docker running? Is the container up? `docker compose -f docker-compose.yml -f docker-compose.mcp.yml -f docker-compose.n8n.yml ps` — look for
 `opencode`. If the terminal where `make run` runs shows errors, read them; they're usually the missing password or a
 port clash.
 
 **"Port 4000 is already in use."**
-Set a different port in `.env`: `OPENCODE_PORT=4001`, then recreate (`make run`). Open http://localhost:4001.
+The web UI port is fixed at 4000; free that port or change the mapping in `docker-compose.yml`, then recreate
+(`make run`).
 
 **I forgot my password.**
 Unset `OPENCODE_PASSWORD` in `.env`, recreate, and read the new one from the logs:

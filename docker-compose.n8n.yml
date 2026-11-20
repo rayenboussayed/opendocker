@@ -33,7 +33,7 @@ services:
     image: n8nio/n8n
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       # Database. SQLite is fine for testing, but Postgres is the persistent store here.
       DB_TYPE: postgresdb
@@ -49,7 +49,7 @@ services:
       # Public URLs and timezone (schedule-oriented nodes use GENERIC_TIMEZONE).
       N8N_HOST: localhost
       N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      WEBHOOK_URL: http://localhost:5678/
       GENERIC_TIMEZONE: ${N8N_TIMEZONE:-Europe/Paris}
       TZ: ${N8N_TIMEZONE:-Europe/Paris}
 
