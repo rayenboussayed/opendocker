@@ -1,4 +1,4 @@
-DOCKER := $(shell docker info >/dev/null 2>&1 && echo docker || echo $(SUDO) docker)
+DOCKER := docker
 BUILD_FLAGS ?= --pull --no-cache
 COMPOSE := -f docker-compose.opencode.yml -f docker-compose.n8n.yml
 DC := $(DOCKER) compose $(COMPOSE)

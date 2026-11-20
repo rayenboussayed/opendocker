@@ -60,8 +60,8 @@ services:
       - opencode-workspace:/home/opencode/workspace
       - opencode-cache:/home/opencode/.cache
       - opencode-global-skills:/home/opencode/.agents
-      - "${HOME:-${USERPROFILE:-/home/opencode}}/.ssh:/home/opencode/.ssh-host:ro"
-      - "${HOME:-${USERPROFILE:-/home/opencode}}/.gitconfig:/home/opencode/.gitconfig-host:ro"
+      - "${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}/.ssh:/home/opencode/.ssh-host:ro"
+      - "${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}/.gitconfig:/home/opencode/.gitconfig-host:ro"
       - ./opencode.json:/etc/opencode/opencode.json:ro
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]

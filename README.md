@@ -113,7 +113,7 @@ You need three things: **Git** (to get the code), **Docker** (the box), and opti
    ```bash
    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
    ```
-   Then either use `sudo` for docker (the Makefile does this automatically) or let your user run docker without it:
+   Then either run make with `sudo` (e.g. `sudo make run`) or let your user run docker without it:
    ```bash
    sudo usermod -aG docker $USER
    ```
@@ -176,7 +176,7 @@ The first run downloads a few GB and can take a few minutes. When you see the se
 **What just happened?** Five containers started:
 
 - **OpenCode** — the agent and its web UI, on http://localhost:4000.
-- **The MCP gateway** — starts and manages ~15 tool servers for the agent (browsers, docs, GitHub…).
+- **The MCP gateway** — starts and manages ~19 catalog tool servers for the agent (roughly 264 tools: browsers, docs, GitHub…).
 - **n8n** — the workflow editor, on http://localhost:5678.
 - **PostgreSQL** — n8n's database (workflows, credentials, executions). Internal only.
 - **SearXNG** — a private web-search backend for n8n. Internal only.
@@ -238,8 +238,10 @@ image.
 | `make clean` | `… down --rmi local --remove-orphans` |
 
 Here `$COMPOSE` is `-f docker-compose.opencode.yml -f docker-compose.n8n.yml`. Data lives in named
-volumes, so none of these delete your sessions or workspace. Ctrl+C stops a foreground run; the Makefile's `trap`
-runs the cleanup target on exit, even on failure. If you aren't in the `docker` group, the Makefile uses `sudo`.
+volumes, so none of these delete your sessions or workspace. Ctrl+C stops a foreground run, after which the Makefile
+runs its cleanup target (even if the run failed). If you aren't in the `docker` group, run make with `sudo` (e.g.
+`sudo make run`) — the Makefile itself never adds sudo. Note `make run-clean` runs `clean` on exit, which removes the
+image it just built; use `make build` + `make run` if you want to keep it.
 
 ## Configuration
 
@@ -257,7 +259,7 @@ which is ignored and is never passed to OpenCode.
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Git identity; if unset, read from your `~/.gitconfig` |
 | `GIT_SIGNING_KEY` | Sign commits and tags: a key in `~/.ssh` (e.g. `id_ed25519.pub`), `agent`, or a public key; if unset, read from your `~/.gitconfig` |
 | `SSH_PRIVATE_KEY` | Private key contents; piped into the in-container ssh-agent at start — no private-key file is created |
-| `HOST_HOME` | Home directory on the host, used to resolve signing-key paths (default: `HOME`, then `USERPROFILE`) |
+| `HOST_HOME` | Home directory on the host: source of the `~/.ssh` and `~/.gitconfig` mounts and signing-key paths (default: `HOME`, then `USERPROFILE`) |
 | `GH_TOKEN` | `gh` and HTTPS git for github.com |
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
@@ -305,13 +307,14 @@ This works when `OPENCODE_PASSWORD` is fixed in `.env`; with the default generat
 
 | | Comes from |
 |---|---|
-| Node.js 26 + npm | the base image, `platformatic/node-caged:slim` |
+| Node.js + npm (latest) | the base image, `platformatic/node-caged:slim` |
 | OpenCode 2 | `npm install -g @opencode/cli@latest` |
-| Python 3.13 + pip + venv | Debian (`apt`) |
-| FFmpeg 7.1 + `ffprobe`/`ffplay` | Debian (`apt`) |
+| Python 3 + pip + venv | Debian (`apt`) |
+| FFmpeg + `ffprobe`/`ffplay` | Debian (`apt`) |
 | git, git-lfs, gh, ssh, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
 
-That's the whole install: one `apt-get install` line, npm/pip upgraded to latest, and one npm install for OpenCode.
+Exact versions follow the floating base-image tag and Debian release at build time. That's the whole install: one
+`apt-get install` line, npm/pip upgraded to latest, and one npm install for OpenCode.
 
 ### About node-caged
 
@@ -362,7 +365,7 @@ sudo and no system package manager at runtime. Read the details in
 - **Resource limits.** OpenCode: 4,096 processes and 8 GB of memory; smaller limits on the other services.
 - **Minimal secret exposure.** Only agent-specific variables pass into the agent container. Keep `.env` and
   `.env.mcp` at mode `600` — container isolation is only part of the story.
-- **Package install scripts are allowed.** npm 12's script blocking is disabled at build and runtime, and pip runs
+- **Package install scripts are allowed.** npm's script blocking is disabled at build and runtime, and pip runs
   source build backends. Third-party install code executes during the image build (no secrets in the build context)
   and at runtime as the non-root `opencode` user. The automatic skills refresh is a notable case — see below.
 
@@ -372,8 +375,8 @@ What this doesn't cover:
 - **Kernel:** containers share the host kernel, so a kernel bug could allow an escape.
 - **Secrets:** the agent can use any keys or tokens you pass in.
 - **Supply chain:** the background `npx skills update -g -y` executes third-party code on every start. It runs
-  without `GH_TOKEN`, `OPENCODE_API_KEY` or `OPENCODE_PASSWORD`, but keeps the SSH agent so it can sign its local
-  snapshot commit.
+  without `GH_TOKEN`, `OPENCODE_API_KEY`, `OPENCODE_PASSWORD` or `POSTHOG_PERSONAL_API_KEY`, but keeps the SSH agent so
+  it can sign its local snapshot commit.
 
 For stronger isolation, run Docker rootless or with `"userns-remap": "default"`. Alternatively, add `runtime: runsc`
 to use [gVisor](https://gvisor.dev).
@@ -405,7 +408,7 @@ changes.
   as exported by the entrypoint because `docker compose exec` reads the container's environment, not the entrypoint's
   exports. *(docker-compose.opencode.yml)*
 
-- **Install scripts.** npm 12 blocks install scripts by default, so the build passes `--dangerously-allow-all-scripts`
+- **Install scripts.** Recent npm blocks install scripts by default, so the build passes `--dangerously-allow-all-scripts`
   and sets `NPM_CONFIG_DANGEROUSLY_ALLOW_ALL_SCRIPTS=true`; Debian's pip needs `--ignore-installed`. `.dockerignore`
   excludes `.git` and `.env*` so no secrets enter the build context. *(Dockerfile, .dockerignore)*
 
@@ -418,9 +421,8 @@ changes.
   `search` tool does not collide with `duckduckgo`'s. `cloudflare-docs` bypasses the catalog because its SSE endpoint
   returns 410. *(docker-compose.opencode.yml, mcp-config.yml, gateway-config.json, opencode.json)*
 
-- **System config readability.** The Dockerfile chmods `/etc/opencode` to 755 so the `opencode` user can traverse it;
-  otherwise OpenCode silently ignores the system config and reports no MCP servers. Run `opencode mcp list` from
-  `~/workspace` — from the home directory no project config is discovered. *(Dockerfile)*
+- **System config readability.** The Dockerfile makes `/etc/opencode` traversable so the `opencode` user can read the
+  system config; otherwise OpenCode silently ignores it and reports no MCP servers. *(Dockerfile)*
 
 - **Gateway-spawned servers.** The gateway attaches each MCP container to the Compose network, so `mcp/n8n` can reach
   `http://n8n:5678`. Those containers get `no-new-privileges` but **not** the Compose services' `cap_drop: ALL`, and
@@ -511,7 +513,8 @@ Security notes:
 - Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` on the internal compose network. The host port
   defaults to 8200 (`MCP_GATEWAY_PORT` in `.env`); the internal 8080 is fixed. The gateway has no authentication and
   holds the Docker socket — any process on this machine or in this compose project can reach it: treat that as
-  host-level access.
+  host-level access. n8n shares the compose network, so an n8n workflow is effectively host-level too; keep n8n access
+  as trusted as the gateway.
 - The gateway spawns MCP containers on the same Compose network with `no-new-privileges` but without the Compose
   services' `cap_drop: ALL`. `mcp-code-interpreter` runs arbitrary Python as root inside its container with network
   access; `mcp/n8n` with a full API key can create workflows that execute code. Only enable what you use.
@@ -552,11 +555,8 @@ The offline node/template tools work regardless.
    (avoids slow prompt hooks from project plugins), map `{{ $json.chatInput }}` and
    `{{ $json.sessionId }}`, and return `{{ $json.reply }}`. Start with the Read Only permission preset.
 
-The community node is `n8n-nodes-opencode-v2@0.1.1`, pinned in the compose file by name, version and
-npm checksum. The original `ssccio/n8n-nodes-opencode` targets the OpenCode **V1** API (`/session`,
-Bearer auth), which no longer exists in OpenCode 2, so it is deliberately not installed. n8n logs a
-warning about a future change to `N8N_UNVERIFIED_PACKAGES_ENABLED`; the pinned checksum is why this
-package installs without enabling that flag globally.
+The community node is `n8n-nodes-opencode-v2@0.1.1`, pinned by name, version and checksum in the compose file.
+See [Design decisions & rationale](#design-decisions--rationale) for why the older `ssccio` node is not used.
 
 ### Storage and search
 
@@ -600,9 +600,9 @@ names if you enable both.
 
 `opencode.json` in the repo root is mounted read-only over the image's system config, `/etc/opencode/opencode.json`.
 The system config is machine-wide and outranks the global and project configs, so it applies to every project and
-can't be loosened by them. It allows every tool action (`action: *`, `effect: allow`) plus an explicit `skill` rule,
-and keeps the `instructions` entry that loads `AGENTS.md`. The broad rule also overrides the default prompts for
-`.env` files; the `skill` rule is kept as an explicit statement of intent. Config edits hot-reload, and the mount means
+can't be loosened by them. It allows every tool action (`action: *`, `effect: allow`) and keeps the `instructions`
+entry that loads `AGENTS.md`. The broad rule also overrides the default prompts for `.env` files — keep it. Config
+edits hot-reload, and the mount means
 no rebuild is needed. The same `opencode.json` is baked into the image as `/etc/opencode/opencode.json`, so the behavior
 doesn't depend on the mount. The gateway URL comes from `MCP_GATEWAY_URL` so the same file works inside the container
 and on the host CLI.
@@ -723,10 +723,12 @@ deletes your sessions and workspace.** Back up first.
 
 - Built and tested on amd64; arm64 images exist for the base image and all `mcp/*` servers, so Apple Silicon should
   work but is untested.
-- Debian's `gh` is 2.46, which is older; `yq` is the jq-syntax tool (kislyuk/yq), not mikefarah/yq.
+- Debian's `gh` is older than upstream; `yq` is the jq-syntax tool (kislyuk/yq), not mikefarah/yq.
 - There is no `sudo` or `apt` at runtime; packages you need must be added to `PACKAGES` and the image rebuilt.
 - `docker compose exec` opens a root shell; add `-u opencode` to act as the agent.
-- First start pulls a few GB of images.
+- Only the standard key names (`id_ed25519`, `id_rsa`, `id_ecdsa`, `identity`) are loaded into the agent automatically.
+  For a custom-named key, add it yourself after starting the stack:
+  `docker compose -f docker-compose.opencode.yml exec -u opencode opencode ssh-add /home/opencode/.ssh-host/<name>`.
 
 ## Learn more
 

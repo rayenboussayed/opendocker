@@ -1,4 +1,2 @@
 n8n:
   api_url: http://n8n:5678
-# dockerhub:
-#   username: your-docker-hub-username

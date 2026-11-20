@@ -71,6 +71,16 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   `MCP_GATEWAY_URL` (Compose sets the internal URL; a host CLI exports the loopback URL). Catalog config values come
   from `mcp-config.yml` via `--config`; `.env.mcp` stays secrets-only.
 - `astryx` and `eslint` no longer carry the redundant `enable: true` field — they are enabled by default in V2.
+- Deep refactor: `entrypoint.sh` gained a `gcfg` helper (10 call sites) and a shared `SSH_HOST_KEYS` array for the four
+  host key names; the unreachable `HOST_HOME != "$H"` guard was dropped. `Dockerfile` folds the `/etc/opencode` chmod
+  into the existing RUN instead of adding a layer. `Makefile` drops the dead `docker info`/`$(SUDO)` probe.
+  `opencode.json` drops the redundant `skill` permission rule. Comment-only lines were removed from `.env.example`,
+  `.env.mcp.example` and `mcp-config.yml`; rationale stays in README.
+- README: corrected the stale server count (~15 → ~19 servers / 264 tools), removed false "Makefile uses sudo" claims,
+  qualified floating version numbers, dropped the redundant skill-rule text, merged the duplicated pinned-n8n-node
+  paragraph, and documented the n8n↔gateway trust equivalence and the custom SSH key limitation.
+- AGENTS.md: corrected the pip install-path claim, added `POSTHOG_PERSONAL_API_KEY` to the skills-refresh env-unset
+  list, and clarified who runs `opencode mcp list` and the startup-log command.
 
 ### Removed
 
@@ -99,6 +109,8 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   `dockerhub`/`duckduckgo` `search` tool collision; all 19 servers and 264 tools now load.
 - Stale README claims about `${VAR:?}` guards, config requiring a restart, and tool counts were corrected; bare
   `docker compose` commands in the docs now carry both `-f` flags.
+- `HOST_HOME` drift: the `~/.ssh` and `~/.gitconfig` bind mounts now use the same `HOST_HOME`/`HOME`/`USERPROFILE`
+  fallback as the container env, so an explicit override resolves host keys from the intended directory.
 
 ### Security
 
@@ -121,6 +133,10 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   so the key remains an explicit, optional user action.
 - Gateway catalog servers are pinned to digests and signature-verified by the gateway; the agent container drops all
   capabilities except the five needed for `chown` and the `setpriv` drop to the agent user [2fe292c] [91bd0de].
+- Documented two pre-existing trust boundaries surfaced during the adversarial audit: n8n shares the compose network
+  with the unauthenticated, Docker-socket-backed gateway (n8n access is effectively host-level), and only the four
+  standard SSH key names are auto-loaded into the agent — custom-named keys need an explicit `ssh-add`. Neither
+  behavior changed in this refactor.
 - `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
 - MCP endpoints are unauthenticated but bind to loopback only; direct remote endpoints enabled by default send
   queries to Grep/grep.app, Cloudflare Docs, Context7, DeepWiki and Microsoft Learn [ed5290f] [0e74b9e].

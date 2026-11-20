@@ -5,8 +5,10 @@ H=/home/opencode
 CFG="$H/.config/git/config"
 UID_N="$(id -u opencode)"
 GID_N="$(id -g opencode)"
+SSH_HOST_KEYS=(id_ed25519 id_rsa id_ecdsa identity)
 
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
+gcfg() { git config --file "$CFG" "$@"; }
 
 stage_public_ssh_files() {
   local dir="$H/.ssh" f n
@@ -54,11 +56,11 @@ start_ssh_agent() {
     return 0
   fi
   export SSH_AUTH_SOCK="$sock"
-  for key in "$H/.ssh-host"/id_ed25519 "$H/.ssh-host"/id_rsa "$H/.ssh-host"/id_ecdsa "$H/.ssh-host"/identity; do
+  for key in "${SSH_HOST_KEYS[@]/#/$H/.ssh-host/}"; do
     [ -f "$key" ] && ssh-add "$key" >/dev/null 2>&1 && log "loaded $(basename "$key") into ssh-agent"
   done
   load_env_key
-  rm -f "$H/.ssh"/{id_ed25519,id_rsa,id_ecdsa,identity,.key,.agent-key}
+  rm -f "${SSH_HOST_KEYS[@]/#/$H/.ssh/}" "$H/.ssh/.key" "$H/.ssh/.agent-key"
   if ! ssh-add -l >/dev/null 2>&1; then
     log "WARNING: ssh-agent has no keys - git push/signing may fail"
   fi
@@ -100,21 +102,21 @@ configure_signing() {
     log "WARNING: GIT_SIGNING_KEY could not be resolved - commits will not be signed"
     return 0
   fi
-  git config --file "$CFG" gpg.format ssh
-  git config --file "$CFG" user.signingkey "$signing"
-  git config --file "$CFG" commit.gpgsign true
-  git config --file "$CFG" tag.gpgsign true
+  gcfg gpg.format ssh
+  gcfg user.signingkey "$signing"
+  gcfg commit.gpgsign true
+  gcfg tag.gpgsign true
   email="$(git config --get user.email || echo '*')"
   printf '%s namespaces="git" %s\n' "$email" "$(awk '{print $1" "$2}' <<<"$pub")" > "$H/.config/git/allowed_signers"
-  git config --file "$CFG" gpg.ssh.allowedSignersFile "$H/.config/git/allowed_signers"
+  gcfg gpg.ssh.allowedSignersFile "$H/.config/git/allowed_signers"
   log "commit signing enabled ($(awk '{print $1}' <<<"$pub") key)"
 }
 
 configure_git() {
   local hostcfg="$H/.gitconfig-host" from_host=""
   mkdir -p "$(dirname "$CFG")"
-  git config --file "$CFG" init.defaultBranch main
-  git config --file "$CFG" safe.directory '*'
+  gcfg init.defaultBranch main
+  gcfg safe.directory '*'
   if [ -f "$hostcfg" ]; then
     if [ -z "${GIT_USER_NAME:-}" ]; then GIT_USER_NAME="$(git config --file "$hostcfg" user.name 2>/dev/null || true)"; from_host=1; fi
     if [ -z "${GIT_USER_EMAIL:-}" ]; then GIT_USER_EMAIL="$(git config --file "$hostcfg" user.email 2>/dev/null || true)"; from_host=1; fi
@@ -123,11 +125,11 @@ configure_git() {
       '~/'*) [ -n "${HOST_HOME:-}" ] && GIT_SIGNING_KEY="${HOST_HOME}${GIT_SIGNING_KEY#'~'}" ;;
     esac
   fi
-  if [ -n "${GIT_USER_NAME:-}" ]; then git config --file "$CFG" user.name "$GIT_USER_NAME"; fi
-  if [ -n "${GIT_USER_EMAIL:-}" ]; then git config --file "$CFG" user.email "$GIT_USER_EMAIL"; fi
+  if [ -n "${GIT_USER_NAME:-}" ]; then gcfg user.name "$GIT_USER_NAME"; fi
+  if [ -n "${GIT_USER_EMAIL:-}" ]; then gcfg user.email "$GIT_USER_EMAIL"; fi
   if [ -n "$from_host" ]; then log "git identity read from host ~/.gitconfig"; fi
   if [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
-    git config --file "$CFG" credential.https://github.com.helper '!gh auth git-credential'
+    gcfg credential.https://github.com.helper '!gh auth git-credential'
   fi
   if [ -n "${GIT_SIGNING_KEY:-}" ]; then configure_signing; fi
 }
@@ -160,12 +162,10 @@ if [ "$(id -u)" = 0 ]; then
   case "${HOST_HOME:-}" in
     ""|/|"$H") ;;
     /*)
-      if [ "$HOST_HOME" != "$H" ]; then
-        if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
-          log "linked $HOST_HOME/.ssh -> $H/.ssh"
-        else
-          log "WARNING: could not link $HOST_HOME/.ssh - host signingKey paths will not resolve"
-        fi
+      if mkdir -p "$HOST_HOME" && ln -sfn "$H/.ssh" "$HOST_HOME/.ssh"; then
+        log "linked $HOST_HOME/.ssh -> $H/.ssh"
+      else
+        log "WARNING: could not link $HOST_HOME/.ssh - host signingKey paths will not resolve"
       fi ;;
     *) log "WARNING: HOST_HOME=$HOST_HOME is not an absolute path - ignoring" ;;
   esac

@@ -194,7 +194,7 @@ do **not** rewrite projects in Rust unless the user explicitly asks.
 - Node.js is built with pointer compression: about half the memory, but each process's heap is limited to 4 GB.
   N-API native addons work; addons using the older NAN API (e.g. `better-sqlite3`) can crash. Prefer an N-API
   alternative, or ask the user to add `build-essential` to `PACKAGES` and rebuild.
-- `npm install -g` and `pip install` install into `~/.local`.
+- `npm install -g` installs into `~/.local` (via `NPM_CONFIG_PREFIX`); no pip user-site override is set here.
 
 ## Agent skills (skills.sh)
 
@@ -212,9 +212,9 @@ volume. The entrypoint restores it if missing, so treat it as image-managed: don
 At every container start the entrypoint starts `npx -y skills update -g -y` in the **background**, so
 the server starts immediately; its output goes to `~/.local/share/opencode/skills-update.log`. The
 updater stages the `~/.agents` volume and creates a local commit there if anything changed (signed when a signing key
-and identity are configured). It runs without `GH_TOKEN`, `OPENCODE_API_KEY` or `OPENCODE_PASSWORD`, but keeps the SSH
-agent for that commit. There is no remote push; the local git history is the rollback trail for skill updates. Update
-failures only log a warning to that file.
+and identity are configured). It runs without `GH_TOKEN`, `OPENCODE_API_KEY`, `OPENCODE_PASSWORD` or
+`POSTHOG_PERSONAL_API_KEY`, but keeps the SSH agent for that commit. There is no remote push; the local git history is
+the rollback trail for skill updates. Update failures only log a warning to that file.
 
 Use the CLI via `npx skills` (no install needed; the Node version here is new enough). It is
 non-interactive when given a query and `-y`. Docs: https://www.skills.sh/docs/cli.
@@ -464,8 +464,9 @@ live. Without it, symlinks break; recreate after restoring the mount.
 **Q: Something is broken — where do I look first?**
 A: In order: `ssh-add -l` → `ssh -T git@github.com` → `ls -l ~/.ssh` (public files) → `git config --list --show-origin` →
 `git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
-warnings), ask the user to run `docker compose -f docker-compose.opencode.yml logs opencode | grep entrypoint` — you
-can't run Docker commands here. For MCP status, ask for `opencode mcp list`.
+warnings), ask the user to run `docker compose -f docker-compose.opencode.yml logs opencode | grep entrypoint` —
+inside the container you have no Docker CLI. For MCP status run `opencode mcp list` yourself from `~/workspace`;
+ask the user only if you cannot.
 
 ## Ask the user first
 

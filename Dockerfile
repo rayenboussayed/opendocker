@@ -30,12 +30,12 @@ RUN mkdir -p /opt/opencode-base-skills/find-skills \
   && useradd -m -u 1000 -U -s /bin/bash opencode \
   && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \
   && chmod 700 /home/opencode/.ssh \
+  && mkdir -p /etc/opencode && chmod 755 /etc/opencode \
   && chown -R opencode:opencode /home/opencode
 
 COPY --chmod=0644 ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0644 ssh_config /etc/ssh/ssh_config.d/50-opencode.conf
 COPY --chmod=0644 AGENTS.md opencode.json /etc/opencode/
-RUN chmod 755 /etc/opencode
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
 
 ENV LANG=C.UTF-8 \
