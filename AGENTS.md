@@ -33,6 +33,117 @@ and think step by step throughout:
    files, commands and decisions, and re-check them whenever the work enters a domain a skill covers.
    Think step by step and verify each result.
 
+## Agentic coding playbook
+
+Goal: orchestrate agents to build software that is simple, minimal, maintainable, readable, writable,
+documented, typed, tested (unit / integration / e2e / performance / memory), secure and fast — with no
+redundant code or types, using the right best practices and design patterns. These rules are distilled from
+large-scale agentic engineering write-ups (minimaxir's agentic iteration, "Rewriting Bun in Rust", and
+GitHub's Copilot-runtime-to-Rust migration). They concern *how to drive agents*, not any one language:
+do **not** rewrite projects in Rust unless the user explicitly asks.
+
+### Quality bar (non-negotiable)
+
+- Prefer simple, minimal and readable over clever; make the smallest change that satisfies the contract.
+- No redundant code or duplicate types: deduplicate, prune dead code, reuse through idiomatic DRY.
+- Use a strongly typed compiler and linters as a fast feedback loop; prefer guarantees enforced by the
+  type system over style guides and manual review.
+- Document decisions in the repo and keep docs in sync with code; follow the project's existing design
+  patterns and conventions instead of inventing parallel structures.
+- Cover unit, integration, e2e, performance and memory/leak tests where relevant.
+
+### Operate the control loop, don't "assign and wait"
+
+- Work in loops: task → implement → review → apply feedback → repeat. Inspect results, challenge decisions,
+  enforce quality gates, and push back when an agent treats an intermediate stopping point as the finish line.
+- Own the framing, boundaries, strategy, trade-offs, high-risk review and final merge; agents do the volume.
+- State the goal and end state explicitly and completely — vague instructions get read narrowly. Say what
+  "done" means, including what must be removed.
+
+### Research first, write second
+
+- Expect ~10x more reading/searching than editing: inspect state, form a hypothesis, make a targeted change,
+  repeat. Don't "spew code".
+- For large changes, map ownership and seams before editing, then delegate slices.
+- De-risk big work: write design decisions into a doc, review that doc adversarially, and trial-run on a
+  small representative slice before scaling. Do all searches and verify evidence; think step by step.
+
+### Prompt for constraints, not outcomes
+
+- Replace "make it better/faster" with specific, measurable, pass/fail targets (e.g. ">=1.2x vs baseline",
+  "no more than 5% regression").
+- Establish a true baseline before changing anything; iterate in small high-impact increments; report
+  results against the baseline each pass; stop when gains converge and added code is disproportionate.
+- Explicitly forbid gaming the metric — change only the implementation, never the test or benchmark;
+  verify via the git diff.
+- Escape local optima with deliberate "breakthrough" prompts: don't repeat what failed, forbid giving up
+  easily, require a fundamental change rather than hyperparameter tweaks.
+- Call out forbidden shortcuts up front (e.g. unsafe code, escape-hatch labels, stubs).
+
+### Adversarial review (separate contexts)
+
+- 1 implementer + 2 or more adversarial reviewers per change. Reviewer sees only the diff, is told to
+  assume the code is wrong, and its only job is to find bugs. Implementer doesn't review; reviewer doesn't implement.
+- Reviewer checklist: behavioral equivalence, incompatibilities, simplification/idiomatic patterns, avoid
+  unnecessary allocation, reuse via traits/interfaces, dead code removed, migration pushed as far as
+  reasonable, and tests not weakened/deleted.
+- Iterate review → fix → re-review until clean; commit after each fix batch so CI runs concurrently.
+- Humans review architecture, design, conventions and risk; agents do exhaustive comparisons; tests and
+  static analysis check mechanically enforceable properties.
+- If a workaround needs a paragraph-long comment to justify it, the code is wrong — fix the code.
+
+### Protect the oracle (tests)
+
+- E2E tests are the correctness oracle. Strengthen them before a large change. The agent changing the
+  implementation must not also rewrite tests, update snapshots, raise baselines, or apply escape-hatch
+  labels. Never delete or change E2E tests without explicit consent.
+- Keep the contract independent and sensitive guardrails behind separate approval; layer checks with
+  different failure modes so one mistake can't ship a regression.
+- Run heavy/full suites in CI, not locally during parallel work; minimize CPU use.
+
+### Subagents and parallel sessions
+
+- Use subagents mainly to fan out exploration/review; keep mutation near the coordinating agent to avoid
+  conflicts and preserve a coherent strategy.
+- Give each parallel worker its own worktree/branch; explicitly forbid destructive/shared git commands
+  (stash, reset --hard) and slow commands; only commit specific files.
+- Use cheaper models for exploration subagents, the strongest model on the main thread for judgment.
+- Gate CPU-heavy builds/tests with a lease (one worker builds at a time); others keep working meanwhile.
+- Be explicit about intent — "leave this alone" and "autonomous, but don't touch other branches" must be
+  said plainly; agents may use any capability you expose in situations you didn't anticipate.
+
+### Refactor and reduce
+
+- After feature/optimization passes, do a dedicated refactor: reduce source lines via deduplication and
+  pruning, split oversized files, keep all tests green and zero performance regressions.
+- Target SLoC, not LoC, so comments aren't deleted to game the metric; remove dead code and temporary shims.
+
+### Performance and benchmark integrity
+
+- Never run benchmarks in parallel (they compete for resources); never game/manipulate benchmarks — change
+  only the implementation. Use diverse/adversarial/real-world inputs and check output against a known-good
+  implementation.
+- Never use target-cpu=native or special flags for a fair comparison; keep benchmarks independent
+  (disable caching features); always use the project's standard benchmark tool.
+- Guard against regressions, including after refactors; iterate until any regression is gone.
+
+### Fix the system, not just the symptom
+
+- When a failure mode appears twice, promote it into standing instructions, a skill, an eval, a protected
+  baseline or a harness check; turn session logs into evals.
+- Fix the process that produced the bad code rather than hand-fixing each case; keep evolving agent and
+  review instructions. Never let a check pass via escape hatches/waivers — investigate and fix the code.
+- A compiler checks internal coherence, not contract correctness, ordering, lifecycle, ambient inputs
+  (time zone/env/cwd), blocking calls, missed features, library behavior differences or acceptable cost —
+  verify these explicitly.
+
+### Developer inner loop
+
+- Optimize build/test/iterate speed up front, including for multiple concurrent worktrees; the agent inner
+  loop benefits more, not less, from a fast loop.
+- Preserve prompt-cache-friendly context (stable prefixes); use subagents/compaction to keep long sessions
+  affordable and on-track, and re-anchor on current state after compaction.
+
 ## Workspace & persistence
 
 - Keep projects in `~/workspace` — it persists across restarts and rebuilds, together with `~/.config/opencode`,
