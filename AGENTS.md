@@ -8,6 +8,9 @@ Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — r
 
 - Keep projects in `~/workspace` — it persists across restarts and rebuilds, together with `~/.config/opencode`,
   `~/.local/share/opencode` and `~/.cache`.
+- Agent skills: global OpenCode skills live in `~/.config/opencode/skills` (`opencode-config` volume), the skills CLI's
+  canonical store and global lock in `~/.agents` (`opencode-global-skills` volume), and project skills in
+  `<project>/.agents/skills/` with `skills-lock.json` in the project root (`opencode-workspace`). See "Agent skills (skills.sh)" below.
 - Everything else — system packages installed with `sudo apt-get`, global npm/pip installs, files you create outside the
   paths above — is lost when the environment is recreated.
 - If a project permanently needs a system package, ask the user to add it to `PACKAGES` in their `.env` and rebuild.
@@ -24,6 +27,77 @@ Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — r
   N-API native addons work; addons using the older NAN API (e.g. `better-sqlite3`) can crash. Prefer an N-API
   alternative, or rebuild them with `rebuild-nan-addons` after installing `build-essential`.
 - `npm install -g` and `pip install` work without sudo and install into `~/.local`.
+
+## Agent skills (skills.sh)
+
+Skills are portable `SKILL.md` instruction packages from https://skills.sh. OpenCode discovers them
+from `~/.config/opencode/skills` (global) and `<project>/.opencode/skills`, `<project>/.agents/skills`,
+`<project>/.claude/skills` (project). A skill's ID is its **directory name**; OpenCode only advertises
+skills whose frontmatter has a `description`. Load one with the `skill` tool (`{"id": "..."}`), or read
+`SKILL.md` directly — supporting files are relative to that directory.
+
+A `find-skills` base skill is baked into the image and seeded at startup into
+`~/.config/opencode/skills/find-skills` — the regular global skills dir, inside the `opencode-config`
+volume. The entrypoint restores it if missing, so treat it as image-managed: don't try to
+`skills update` or `skills remove` it; upstream changes arrive on rebuild (`SKILLS_REF`).
+
+Use the CLI via `npx skills` (no install needed; the Node version here is new enough). It is
+non-interactive when given a query and `-y`. Docs: https://www.skills.sh/docs/cli.
+
+### Read and inspect
+
+- `npx skills list` — project skills; `npx skills list -g` — global skills. Status: `tracked`, `modified`, `untracked`, `missing`. Add `--json` for machine-readable output.
+- `ls -R ~/.config/opencode/skills` — global skill files; `cat ~/.config/opencode/skills/<id>/SKILL.md` — read one.
+- `npx skills use <owner/repo@skill>` — print a skill's prompt without installing it.
+
+### Find
+
+- `npx skills find <query> [--owner <owner>]` — searches the skills.sh index. With a query it prints
+  `owner/repo@skill`, install count and a skills.sh URL. Without a query it opens an interactive picker — avoid that.
+- Verify before recommending: prefer 1K+ installs, reputable sources (`vercel-labs`, `anthropics`, `microsoft`),
+  check GitHub stars and the `SKILL.md` contents. Security audits: https://skills.sh/audits.
+- Telemetry is anonymous; set `DISABLE_TELEMETRY=1` (or `DO_NOT_TRACK=1`) if the user prefers none.
+
+### Install and update — keep them in persisted volumes
+
+Skill storage that survives a recreate:
+
+| Path | Volume |
+| --- | --- |
+| `~/.config/opencode/skills/` | `opencode-config` |
+| `~/.agents/skills/` + `~/.agents/.skill-lock.json` | `opencode-global-skills` |
+| `<project>/.agents/skills/` + `<project>/skills-lock.json` | `opencode-workspace` |
+
+- **Project skills (project-only):** run from a project inside `~/workspace`, without `-g`.
+  Files go to `<project>/.agents/skills/`, lock to `<project>/skills-lock.json` — both in `opencode-workspace`.
+  ```bash
+  npx skills add <owner/repo@skill> -a opencode -y
+  npx skills check                     # report updates / local changes (exit 1 if any)
+  npx skills update -y                 # update all project skills
+  ```
+- **Global skills (all projects):** `-g` is safe now — the canonical store `~/.agents/skills` and the global
+  lock `~/.agents/.skill-lock.json` are inside the `opencode-global-skills` volume, so symlinks, updates and
+  removals all survive a recreate.
+  ```bash
+  npx skills add <owner/repo@skill> -g -a opencode -y
+  npx skills check -g
+  npx skills update -g -y
+  npx skills list -g
+  ```
+  `--copy` still works if you prefer real files under `~/.config/opencode/skills/` instead of symlinks; it is
+  no longer required for persistence.
+- `npx skills check -g` is read-only in current releases, but some older versions (e.g. 1.7.4) routed it to
+  `update`. Confirm with `npx skills --help` before relying on it as read-only.
+- Remove: `npx skills remove -g <name>` (`-y` skips prompts). `--all` only removes lock-tracked skills;
+  name untracked ones explicitly.
+
+### Persistence map
+
+| Path | Volume | Survives recreate? |
+| --- | --- | --- |
+| `~/.config/opencode/skills/` (incl. seeded `find-skills`) | `opencode-config` | yes |
+| `~/.agents/skills/`, `~/.agents/.skill-lock.json` | `opencode-global-skills` | yes |
+| `<project>/.agents/skills/` + `skills-lock.json` | `opencode-workspace` | yes |
 
 ## Git
 
@@ -278,6 +352,15 @@ A: In order: `~/.ssh` permissions → `ssh -T git@github.com` → `ssh-add -l` �
 `git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
 warnings), ask the user to run `docker compose logs opencode | grep entrypoint` — you can't run Docker commands here.
 
+**Q: How do I install a skill that survives a recreate?**
+A: Either project scope from a project in `~/workspace` (no `-g`), or global scope with
+`npx skills add <source> -g -a opencode -y`. The canonical store `~/.agents/skills` and its global lock
+are in the `opencode-global-skills` volume. See "Agent skills (skills.sh)".
+
+**Q: My skills broke or disappeared after `make run`.**
+A: Check that `opencode-global-skills` is mounted at `~/.agents` — that's where the canonical store and
+global lock live. Without it, symlinks break; recreate after restoring the mount.
+
 ## Ask the user first
 
 - Pushing to repositories you didn't create, merging/closing PRs or issues, publishing releases
@@ -285,6 +368,7 @@ warnings), ask the user to run `docker compose logs opencode | grep entrypoint` 
 - Adding trusted SSH hosts, using a key not in `~/.ssh`, generating new keys
 - Changing git identity, signing configuration or anything in `.env`
 - Making any repository public/private, changing tokens or scopes
+- Changing `opencode.json` skills sources or compose volume mounts (skill storage layout)
 
 ## Never
 

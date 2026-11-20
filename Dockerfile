@@ -25,6 +25,15 @@ COPY --chmod=0644 ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0644 ssh_config /etc/ssh/ssh_config.d/50-opencode.conf
 COPY --chmod=0644 AGENTS.md opencode.json /etc/opencode/
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
+
+# Pristine base skill baked into the image; the entrypoint seeds it into the persisted skills dir.
+ARG SKILLS_REF=main
+RUN mkdir -p /opt/opencode-base-skills/find-skills \
+ && curl -fsSL --retry 3 \
+      "https://raw.githubusercontent.com/vercel-labs/skills/${SKILLS_REF}/skills/find-skills/SKILL.md" \
+      -o /opt/opencode-base-skills/find-skills/SKILL.md \
+ && chmod -R a+rX /opt/opencode-base-skills
+
 RUN chmod 0755 /etc/opencode \
  && useradd -m -u 1000 -U -s /bin/bash opencode \
  && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \

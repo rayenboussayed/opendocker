@@ -29,12 +29,25 @@ install_ssh_keys() {
   fi
 }
 
+seed_base_skill() {
+  local src=/opt/opencode-base-skills/find-skills/SKILL.md
+  local dir="$H/.config/opencode/skills/find-skills"
+  [ -f "$src" ] || return 0
+  if [ ! -f "$dir/SKILL.md" ]; then
+    mkdir -p "$dir"
+    cp -f "$src" "$dir/SKILL.md"
+    chown -R 1000:1000 "$dir"
+    log "seeded find-skills into ~/.config/opencode/skills"
+  fi
+}
+
 if [ "$(id -u)" = 0 ]; then
-  for d in .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
+  for d in .agents .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
     if [ -d "$H/$d" ] && [ "$(stat -c %u "$H/$d")" = 0 ]; then chown -R 1000:1000 "$H/$d"; log "fixed ownership of ~/$d"; fi
   done
   install_ssh_keys
   chown -R 1000:1000 "$H/.ssh"
+  seed_base_skill
   # Expose the copied keys at the host's real path, so git (and the host's ~/.gitconfig
   # signingkey, absolute or ~) finds them exactly where the host config expects.
   case "${HOST_HOME:-}" in

@@ -19,6 +19,8 @@ services:
       - opencode-data:/home/opencode/.local/share/opencode
       - opencode-workspace:/home/opencode/workspace
       - opencode-cache:/home/opencode/.cache
+      # Global skills: the skills CLI's canonical store and lock live in ~/.agents
+      - opencode-global-skills:/home/opencode/.agents
       # Host SSH keys: composed from HOME or USERPROFILE so it works without a HOME env var
       - "${HOME:-${USERPROFILE:-~}}/.ssh:/home/opencode/.ssh-host:ro"
       # Git identity and SSH signing key, inferred from the host's ~/.gitconfig (read-only).
@@ -42,3 +44,4 @@ volumes:
   opencode-data:
   opencode-workspace:
   opencode-cache:
+  opencode-global-skills:
