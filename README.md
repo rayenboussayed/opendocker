@@ -416,10 +416,10 @@ changes.
   without it OpenCode races DNS and logs `ENOTFOUND mcp-gateway`. The gateway owns the Docker socket as its control
   plane, is published on loopback via `MCP_GATEWAY_PORT` (host `8200` → container `8080`), and the agent never sees the
   socket. `opencode.json` takes the gateway URL from `MCP_GATEWAY_URL`: Compose sets the internal hostname, while a
-  host-side OpenCode CLI must export `http://127.0.0.1:8200/mcp`. The gateway generates its two small config files at
-  startup from inline Compose commands (`tool-name-prefix` to avoid the `dockerhub`/`duckduckgo` `search` collision,
-  and `n8n.api_url` so the spawned container reaches n8n); secrets come from `.env.mcp`. `cloudflare-docs` bypasses
-  the catalog because its SSE endpoint returns 410. *(docker-compose.opencode.yml, opencode.json)*
+  host-side OpenCode CLI must export `http://127.0.0.1:8200/mcp`. Catalog config values live in `mcp-config.yml`,
+  secrets in `.env.mcp`; `gateway-config.json` enables the gateway's `tool-name-prefix` feature so `dockerhub`'s
+  `search` tool does not collide with `duckduckgo`'s. `cloudflare-docs` bypasses the catalog because its SSE endpoint
+  returns 410. *(docker-compose.opencode.yml, mcp-config.yml, gateway-config.json, opencode.json)*
 
 - **System config readability.** The Dockerfile makes `/etc/opencode` traversable so the `opencode` user can read the
   system config; otherwise OpenCode silently ignores it and reports no MCP servers. *(Dockerfile)*
@@ -465,12 +465,9 @@ instead of in the container, `MCP_GATEWAY_URL` must be set to `http://127.0.0.1:
 the container-only hostname `mcp-gateway` cannot be resolved from the host, and the background service captures its
 environment at startup, so restart it after changing the variable. Inside the container Compose sets it automatically.
 
-**Configuration.** `.env.mcp` holds secrets only; it is ignored, must be chmod 600, is mounted only into the
-gateway, and is never passed to OpenCode. Non-secret catalog config is generated at gateway startup from inline
-Compose commands: `n8n.api_url` (`http://n8n:5678`, reachable because the spawned container shares the Compose
-network) and the `tool-name-prefix` feature flag. Docker Hub's optional username is also a config value; add it to the
-inline `printf` for the generated config if you need authenticated Hub tools. Putting config values in `.env.mcp`
-silently does nothing.
+**Configuration files.** `.env.mcp` holds secrets only; it is ignored, must be chmod 600, is mounted only into the
+gateway, and is never passed to OpenCode. `mcp-config.yml` holds non-secret catalog config values and is mounted
+read-only. Putting config values in `.env.mcp` silently does nothing.
 
 | `.env.mcp` key | Purpose |
 |---|---|
@@ -479,6 +476,11 @@ silently does nothing.
 | `grafana.api_key` | Optional; Grafana service-account token |
 | `dockerhub.pat_token` | Optional; Docker Hub personal access token |
 | `n8n.api_key` | Optional; enables live n8n workflow tools |
+
+| `mcp-config.yml` key | Purpose |
+|---|---|
+| `n8n.api_url` | Local n8n endpoint (`http://n8n:5678`); the spawned container shares the Compose network |
+| `dockerhub.username` | Optional; Docker Hub username for authenticated tools (a config value, not a secret) |
 
 Missing optional keys only produce gateway warnings; GitHub Official will not work without a token. The n8n key is
 created manually in n8n → **Settings → n8n API** (there is no supported CLI or env var to generate one); without it the
