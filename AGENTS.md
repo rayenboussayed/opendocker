@@ -20,8 +20,9 @@ secrets must never enter the agent container. OpenCode is limited to 4,096 proce
 
 The Dockerfile copies `AGENTS.md` and `opencode.json` to `/etc/opencode/`, chmods that directory to 755 so the
 `opencode` user can read it, and `opencode.json` loads `/etc/opencode/AGENTS.md`; keep those paths in sync if either file
-moves. `gateway-config.json` enables the gateway's `tool-name-prefix` feature to avoid tool-name collisions. Run
-`opencode mcp list` from `~/workspace`, not the home directory, or no project config is discovered.
+moves. The gateway generates its small config files at startup from inline Compose commands (`tool-name-prefix`
+avoids tool-name collisions; `n8n.api_url` points at the local n8n). Run `opencode mcp list` from `~/workspace`, not
+the home directory, or no project config is discovered.
 
 - n8n stores workflows, credentials and execution history in Postgres. `N8N_ENCRYPTION_KEY` in `.env`
   encrypts stored credentials — back it up and never rotate it casually.
@@ -499,9 +500,10 @@ disabled optional servers. The gateway and OpenCode are defined in `docker-compo
 
 The gateway URL comes from `MCP_GATEWAY_URL`: Compose sets `http://mcp-gateway:8080/mcp` inside the container; a host
 OpenCode CLI must start with `MCP_GATEWAY_URL=http://127.0.0.1:8200/mcp` in its environment (the background service
-captures it at startup). `mcp-config.yml` holds non-secret config values (currently
-`n8n.api_url: http://n8n:5678`); `.env.mcp` holds secrets only and must remain chmod 600. Config values in `.env.mcp`
-are silently ignored. The n8n API key has no CLI/env generator — it is created in n8n's Settings → n8n API UI.
+captures it at startup). Non-secret config (`n8n.api_url: http://n8n:5678`, the `tool-name-prefix` flag) is generated
+at gateway startup from inline Compose commands; `.env.mcp` holds secrets only and must remain chmod 600. Config
+values in `.env.mcp` are silently ignored. The n8n API key has no CLI/env generator — it is created in n8n's Settings
+→ n8n API UI.
 
 Tools are hidden by Code Mode: `opencode mcp list` shows connection status, and inside the agent `execute` →
 `search({ namespace: "..." })` discovers them. The gateway has no authentication and holds the Docker socket as its

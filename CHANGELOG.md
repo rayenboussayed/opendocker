@@ -46,8 +46,8 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   `make clean` handle both stacks [98c6ff9].
 - Four catalog MCP servers: `grafana`, `dockerhub`, `mcp-code-interpreter` and `n8n`. `memory` was already enabled, so
   the gateway now runs 19 servers and roughly 264 tools.
-- `mcp-config.yml` holds non-secret catalog config (`n8n.api_url`), mounted read-only into the gateway.
-  `.env.mcp.example` documents the optional Grafana, Docker Hub and n8n secret keys.
+- Non-secret catalog config (`n8n.api_url`) and the gateway's `tool-name-prefix` feature are generated at gateway
+  startup from inline Compose commands; `.env.mcp.example` documents the optional Grafana, Docker Hub and n8n secret keys.
 
 ### Changed
 
@@ -68,14 +68,14 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   one-line stubs and `.dockerignore` uses an `.env*` glob. Healthchecks were added for n8n and wired for SearXNG.
 - `docker-compose.yml` and `docker-compose.mcp.yml` were merged into `docker-compose.opencode.yml`; `opencode` gained
   `depends_on: mcp-gateway` so the gateway container exists before OpenCode connects. The gateway URL comes from
-  `MCP_GATEWAY_URL` (Compose sets the internal URL; a host CLI exports the loopback URL). Catalog config values come
-  from `mcp-config.yml` via `--config`; `.env.mcp` stays secrets-only.
+  `MCP_GATEWAY_URL` (Compose sets the internal URL; a host CLI exports the loopback URL). Non-secret catalog config is
+  generated at gateway startup via `--config`; `.env.mcp` stays secrets-only.
 - `astryx` and `eslint` no longer carry the redundant `enable: true` field — they are enabled by default in V2.
 - Deep refactor: `entrypoint.sh` gained a `gcfg` helper (10 call sites) and a shared `SSH_HOST_KEYS` array for the four
   host key names; the unreachable `HOST_HOME != "$H"` guard was dropped. `Dockerfile` folds the `/etc/opencode` chmod
   into the existing RUN instead of adding a layer. `Makefile` drops the dead `docker info`/`$(SUDO)` probe.
-  `opencode.json` drops the redundant `skill` permission rule. Comment-only lines were removed from `.env.example`,
-  `.env.mcp.example` and `mcp-config.yml`; rationale stays in README.
+  `opencode.json` drops the redundant `skill` permission rule. Comment-only lines were removed from `.env.example`
+  and `.env.mcp.example`; rationale stays in README.
 - README: corrected the stale server count (~15 → ~19 servers / 264 tools), removed false "Makefile uses sudo" claims,
   qualified floating version numbers, dropped the redundant skill-rule text, merged the duplicated pinned-n8n-node
   paragraph, and documented the n8n↔gateway trust equivalence and the custom SSH key limitation.
@@ -90,6 +90,8 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - Stale `make test` / `make docker` commands and the nonexistent `tests/` section from the docs [1504b5e].
 - `Makefile` targets `run-opencode-clean` and `run-n8n-clean`, plus the service-list variables and the `$(2)` macro
   parameter they alone used. `run-clean` is now the only clean target.
+- The standalone `mcp-config.yml` and `gateway-config.json` files. The gateway generates the same two config files at
+  startup from inline Compose commands, so all gateway config lives in `docker-compose.opencode.yml`.
 
 ### Fixed
 
@@ -105,7 +107,7 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - The host OpenCode CLI could not resolve `http://mcp-gateway:8080/mcp` (a Compose-internal hostname); the URL is now
   driven by `MCP_GATEWAY_URL`, and the docs explain how to inspect MCP status and find Code Mode tools.
 - `/etc/opencode` was mode 644, so the `opencode` user could not read the system config and OpenCode reported no MCP
-  servers; the Dockerfile now chmods it to 755. `gateway-config.json` enables `tool-name-prefix` to resolve the
+  servers; the Dockerfile now chmods it to 755. The gateway's inline `tool-name-prefix` config resolves the
   `dockerhub`/`duckduckgo` `search` tool collision; all 19 servers and 264 tools now load.
 - Stale README claims about `${VAR:?}` guards, config requiring a restart, and tool counts were corrected; bare
   `docker compose` commands in the docs now carry both `-f` flags.

@@ -3,24 +3,28 @@ name: opencode-docker
 services:
   mcp-gateway:
     image: docker/mcp-gateway:latest
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - --servers=sequentialthinking,playwright,fetch,time,duckduckgo,markitdown,wikipedia-mcp,next-devtools-mcp,npm-sentinel,memory,aws-documentation,github-official,context7,deepwiki,microsoft-learn,grafana,dockerhub,mcp-code-interpreter,n8n
-      - --transport=streaming
-      - --port=8080
-      - --host=0.0.0.0
-      - --allow-unauthenticated
-      - --secrets=/run/secrets/mcp_secrets
-      - --config=/run/secrets/mcp_config
-      - --cpus=1
-      - --memory=1Gb
+      - |
+        mkdir -p /root/.docker
+        printf '%s\n' '{"features":{"tool-name-prefix":"enabled"}}' > /root/.docker/config.json
+        printf '%s\n' 'n8n:' '  api_url: http://n8n:5678' > /run/mcp-config.yml
+        exec /docker-mcp gateway run \
+          --servers=sequentialthinking,playwright,fetch,time,duckduckgo,markitdown,wikipedia-mcp,next-devtools-mcp,npm-sentinel,memory,aws-documentation,github-official,context7,deepwiki,microsoft-learn,grafana,dockerhub,mcp-code-interpreter,n8n \
+          --transport=streaming \
+          --port=8080 \
+          --host=0.0.0.0 \
+          --allow-unauthenticated \
+          --secrets=/run/secrets/mcp_secrets \
+          --config=/run/mcp-config.yml \
+          --cpus=1 \
+          --memory=1Gb
     environment:
       DOCKER_MCP_IN_CONTAINER: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./gateway-config.json:/root/.docker/config.json:ro
     secrets:
       - mcp_secrets
-      - mcp_config
     ports:
       - "127.0.0.1:${MCP_GATEWAY_PORT:-8200}:8080"
     mem_limit: 4g
@@ -78,8 +82,6 @@ services:
 secrets:
   mcp_secrets:
     file: ./.env.mcp
-  mcp_config:
-    file: ./mcp-config.yml
 
 volumes:
   opencode-config:
