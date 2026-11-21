@@ -1,5 +1,5 @@
 DOCKER := docker
-BUILD_FLAGS ?= --pull --no-cache
+# BUILD_FLAGS ?= --pull --no-cache
 COMPOSE := -f docker-compose.opencode.yml -f docker-compose.n8n.yml
 DC := $(DOCKER) compose $(COMPOSE)
 UP = @trap : INT TERM; $(DC) up; $(MAKE) --no-print-directory $(1)
@@ -14,7 +14,7 @@ run-clean: build
 	$(call UP,clean)
 
 build:
-	$(DC) build $(BUILD_FLAGS)
+	$(DC) build # $(BUILD_FLAGS)
 
 down:
 	$(DC) down --remove-orphans
