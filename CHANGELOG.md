@@ -49,10 +49,10 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
 - `mcp-config.yml` holds non-secret catalog config (`n8n.api_url`), mounted read-only into the gateway.
   `.env.mcp.example` documents the optional Grafana, Docker Hub and n8n secret keys.
 - A dedicated DinD daemon (`docker:dind`) for the agent's builds and test containers, with a Docker CLI and
-  `buildx`/`compose` plugins copied from `docker:cli`. Ports in `DIND_PORT_START`–`DIND_PORT_END` (default
-  31000–31099) are forwarded from `127.0.0.1`; the daemon's ephemeral range is constrained to the same ports so
-  `docker run -P` is host-reachable too. A `DinD` section in README and AGENTS.md documents port publishing.
-- `DOCKER_CLI_TAG`, `DIND_PORT_START` and `DIND_PORT_END` build/runtime settings in `.env.example`.
+  `buildx`/`compose` plugins copied from `docker:cli`. Ports `31000–31099` are forwarded from `127.0.0.1`; the
+  daemon's ephemeral range is constrained to the same ports so `docker run -P` is host-reachable too. A `DinD`
+  section in README and AGENTS.md documents port publishing.
+- `DOCKER_CLI_TAG` build setting in `.env.example`.
 
 ### Changed
 

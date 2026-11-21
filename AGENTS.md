@@ -46,8 +46,8 @@ DinD cannot reach the host's `127.0.0.1`-published ports.
   installed alongside the CLI.
 - DinD state persists in the `dind-data` volume: images and containers you build survive restarts and `make clean`;
   only `down -v` removes them.
-- **Port publishing.** An inner `docker run -p HOST:CONTAINER ...` publishes on the DinD container. Ports in
-  `DIND_PORT_START`–`DIND_PORT_END` (default 31000–31099) are forwarded from `127.0.0.1` on the host automatically:
+- **Port publishing.** An inner `docker run -p HOST:CONTAINER ...` publishes on the DinD container. Ports
+  `31000–31099` are forwarded from `127.0.0.1` on the host automatically:
   use `-p 31000:80`, then open `http://localhost:31000` on the host. `docker run -P` uses that same constrained
   range; find the chosen port with `docker port <container>` (`-P` publishes nothing for images without `EXPOSE`).
   The constraint also limits outbound source ports from DinD, so many concurrent pulls/builds can exhaust it — ask the
@@ -547,9 +547,9 @@ tokens than needed.
 
 - Internet access is available.
 - The web UI is published on loopback (default 4000). Pre-existing Compose services reach each other by service name.
-- Containers you start on DinD are **not** automatically reachable from the host. Ports in the configured
-  `DIND_PORT_START`–`DIND_PORT_END` range are forwarded from `127.0.0.1` by Compose; use `-p 31000:80` and the host can
-  open `http://localhost:31000`. `-P` works too because dind's ephemeral range is constrained to the same ports
+- Containers you start on DinD are **not** automatically reachable from the host. Ports `31000–31099` are forwarded
+  from `127.0.0.1` by Compose; use `-p 31000:80` and the host can open `http://localhost:31000`. `-P` works too
+  because dind's ephemeral range is constrained to the same ports
   (`docker port <container>` shows the choice).
 - For a port outside that range, ask the user to add a loopback `ports:` mapping to the `docker` service and recreate.
   Do not edit Compose files unprompted. Other Compose services reach your container by service/container name, not

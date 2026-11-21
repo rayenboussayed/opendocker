@@ -33,13 +33,13 @@ services:
     image: docker:dind
     privileged: true
     sysctls:
-      net.ipv4.ip_local_port_range: "${DIND_PORT_START:-31000} ${DIND_PORT_END:-31099}"
+      net.ipv4.ip_local_port_range: "31000 31099"
     environment:
       DOCKER_TLS_CERTDIR: ""
     volumes:
       - dind-data:/var/lib/docker
     ports:
-      - "127.0.0.1:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}"
+      - "127.0.0.1:31000-31099:31000-31099"
     networks:
       - docker-net
     mem_limit: 4g

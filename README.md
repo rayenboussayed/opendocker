@@ -229,9 +229,8 @@ on your laptop. Three ways to give it your code:
 ### Publishing container ports to the host
 
 The agent has its own Docker daemon (DinD). A `docker run -p <host>:<container>` publishes on the **DinD container**,
-not directly on your machine. Compose forwards a fixed range — `DIND_PORT_START`–`DIND_PORT_END` (default `31000`–
-`31099`) — from `127.0.0.1` on your host to DinD, so any container published on one of those ports is reachable
-straight away:
+not directly on your machine. Compose forwards the fixed range `31000`–`31099` from `127.0.0.1` on your host to DinD,
+so any container published on one of those ports is reachable straight away:
 
 ```bash
 # the agent, inside the container
@@ -248,15 +247,15 @@ To expose a port outside the range, add another loopback mapping under the `dock
 
 ```yaml
 ports:
-  - "127.0.0.1:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}"
+  - "127.0.0.1:31000-31099:31000-31099"
   - "127.0.0.1:8080:8080"
 ```
 
 All bindings stay on `127.0.0.1`, so they are not reachable from your LAN. On macOS and Windows, Docker Desktop
 forwards published ports into its Linux VM: `localhost` on your machine works, but other machines on the LAN
-generally do not (WSL2 NAT). Every published port costs a little startup time on Desktop — shrink the range in `.env`
-if you don't need 100 ports. A port already in use on the host prevents startup; change `DIND_PORT_START` and
-`DIND_PORT_END` together if you hit a clash. See [Docker in Docker](#docker-in-docker-dind).
+generally do not (WSL2 NAT). Every published port costs a little startup time on Desktop. A port already in use on the
+host prevents startup; edit the range in `docker-compose.opencode.yml` if you hit a clash (and keep the `sysctls` value
+in sync). See [Docker in Docker](#docker-in-docker-dind).
 
 ## Commands
 
@@ -298,7 +297,6 @@ which is ignored and is never passed to OpenCode.
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
 | `MCP_GATEWAY_PORT` | Host port for the MCP gateway (default `8200`; internal port is fixed at `8080`) |
-| `DIND_PORT_START`, `DIND_PORT_END` | Host port range forwarded from `127.0.0.1` to DinD (defaults `31000` and `31099`); change both together |
 | `DOCKER_CLI_TAG` | Build: Docker CLI version copied from the official `docker:cli` image (default `29-cli`) |
 | `NODE_TAG` | Build: base image tag (default `slim`) |
 | `SKILLS_REF` | Build: git ref for the baked-in `find-skills` skill (default `main`) |
@@ -385,8 +383,9 @@ Cross-platform notes:
 - **Default shell.** Use Git Bash or WSL2 on Windows; the examples assume a POSIX shell.
 - **DinD port range.** On Linux the worker port range binds to `127.0.0.1`. On macOS/Windows Docker Desktop,
   `localhost` reaches the forwarded ports; other machines on the LAN generally do not. A range that is too large
-  slows Desktop startup, and a host port already in use aborts startup — adjust `DIND_PORT_START`/`DIND_PORT_END`.
-  Privileged DinD does not work with rootless Docker or Docker Desktop Enhanced Container Isolation.
+  slows Desktop startup, and a host port already in use aborts startup — edit the range in
+  `docker-compose.opencode.yml` (ports and `sysctls`). Privileged DinD does not work with rootless Docker or Docker
+  Desktop Enhanced Container Isolation.
 
 ## Is it safe?
 
@@ -751,9 +750,9 @@ The web UI port is fixed at 4000; free that port or change the mapping in `docke
 (`make run`).
 
 **A port from a container the agent started isn't reachable from my host.**
-Containers on DinD publish on the DinD container first. Ports in `DIND_PORT_START`–`DIND_PORT_END` (default
-31000–31099) are forwarded from `127.0.0.1` automatically: use `-p 31000:80`, and `docker port <name>` to see which
-port `-P` chose. For any other port, add a loopback `ports:` mapping to the `docker` service and recreate — see
+Containers on DinD publish on the DinD container first. Ports `31000–31099` are forwarded from `127.0.0.1`
+automatically: use `-p 31000:80`, and `docker port <name>` to see which port `-P` chose. For any other port, add a
+loopback `ports:` mapping to the `docker` service and recreate — see
 [Publishing container ports to the host](#publishing-container-ports-to-the-host).
 
 **`docker` inside the agent doesn't see my host containers.**
