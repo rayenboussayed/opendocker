@@ -13,6 +13,7 @@
 - [Set it up in 3 steps](#set-it-up-in-3-steps) · [Your first 10 minutes](#your-first-10-minutes)
 - [Commands](#commands) · [Configuration](#configuration) · [What's inside](#whats-inside)
 - [Your projects: how they get in](#your-projects-how-they-get-in) · [Is it safe?](#is-it-safe)
+- [Docker in Docker (DinD)](#docker-in-docker-dind)
 - [Design decisions & rationale](#design-decisions--rationale)
 - [MCP servers](#mcp-servers) · [n8n, PostgreSQL, and SearXNG](#n8n-postgresql-and-searxng)
 - [Universal config](#universal-config) · [AGENTS.md](#agentsmd)
@@ -173,13 +174,14 @@ docker compose -f docker-compose.opencode.yml -f docker-compose.n8n.yml up
 The first run downloads a few GB and can take a few minutes. When you see the server start, open
 **http://localhost:4000**.
 
-**What just happened?** Five containers started:
+**What just happened?** Six containers started:
 
 - **OpenCode** — the agent and its web UI, on http://localhost:4000.
 - **The MCP gateway** — starts and manages ~19 catalog tool servers for the agent (roughly 264 tools: browsers, docs, GitHub…).
 - **n8n** — the workflow editor, on http://localhost:5678.
 - **PostgreSQL** — n8n's database (workflows, credentials, executions). Internal only.
 - **SearXNG** — a private web-search backend for n8n. Internal only.
+- **Docker daemon (DinD)** — a private Docker daemon for the agent's builds and test containers. Not your host Docker.
 
 Sign in with username `opencode` and your password. If you didn't set one, OpenCode generates a new random password
 every start; find it with:
@@ -224,9 +226,41 @@ on your laptop. Three ways to give it your code:
 3. **Copy files in**: `docker compose -f docker-compose.opencode.yml exec opencode bash` then `mkdir -p ~/workspace/my-project` and copy files with
    `docker cp` from outside, or download them inside the app.
 
+### Publishing container ports to the host
+
+The agent has its own Docker daemon (DinD). A `docker run -p <host>:<container>` publishes on the **DinD container**,
+not directly on your machine. Compose forwards a fixed range — `DIND_PORT_START`–`DIND_PORT_END` (default `31000`–
+`31099`) — from `127.0.0.1` on your host to DinD, so any container published on one of those ports is reachable
+straight away:
+
+```bash
+# the agent, inside the container
+docker run -d --name demo -p 31000:80 nginx
+# you, on the host: http://localhost:31000
+```
+
+`docker run -P` works too: DinD's ephemeral port range is constrained to those same ports, so each `EXPOSE`d port gets
+one automatically. Find the chosen host port with `docker port demo` inside the container. An image with no `EXPOSE`
+publishes nothing under `-P` — use an explicit `-p`.
+
+To expose a port outside the range, add another loopback mapping under the `docker` service in
+`docker-compose.opencode.yml` and recreate:
+
+```yaml
+ports:
+  - "127.0.0.1:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}"
+  - "127.0.0.1:8080:8080"
+```
+
+All bindings stay on `127.0.0.1`, so they are not reachable from your LAN. On macOS and Windows, Docker Desktop
+forwards published ports into its Linux VM: `localhost` on your machine works, but other machines on the LAN
+generally do not (WSL2 NAT). Every published port costs a little startup time on Desktop — shrink the range in `.env`
+if you don't need 100 ports. A port already in use on the host prevents startup; change `DIND_PORT_START` and
+`DIND_PORT_END` together if you hit a clash. See [Docker in Docker](#docker-in-docker-dind).
+
 ## Commands
 
-`make run` is the normal choice: it starts all five containers. `make run-clean` does the same after rebuilding the
+`make run` is the normal choice: it starts all six containers. `make run-clean` does the same after rebuilding the
 image.
 
 | Target | Without `make` |
@@ -264,6 +298,8 @@ which is ignored and is never passed to OpenCode.
 | `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `PARALLEL_API_KEY` / `TAVILY_API_KEY` / `TINYFISH_API_KEY` | Optional: OpenCode's built-in web search provider |
 | `POSTHOG_PERSONAL_API_KEY` | Optional: PostHog MCP server (disabled by default) |
 | `MCP_GATEWAY_PORT` | Host port for the MCP gateway (default `8200`; internal port is fixed at `8080`) |
+| `DIND_PORT_START`, `DIND_PORT_END` | Host port range forwarded from `127.0.0.1` to DinD (defaults `31000` and `31099`); change both together |
+| `DOCKER_CLI_TAG` | Build: Docker CLI version copied from the official `docker:cli` image (default `29-cli`) |
 | `NODE_TAG` | Build: base image tag (default `slim`) |
 | `SKILLS_REF` | Build: git ref for the baked-in `find-skills` skill (default `main`) |
 | `NPM_PACKAGES`, `PIP_PACKAGES` | Build: extra global tools |
@@ -309,6 +345,7 @@ This works when `OPENCODE_PASSWORD` is fixed in `.env`; with the default generat
 |---|---|
 | Node.js + npm (latest) | the base image, `platformatic/node-caged:slim` |
 | OpenCode 2 | `npm install -g @opencode/cli@latest` |
+| Docker CLI + `buildx`/`compose` plugins | static binary copied from `docker:cli` at build time |
 | Python 3 + pip + venv | Debian (`apt`) |
 | FFmpeg + `ffprobe`/`ffplay` | Debian (`apt`) |
 | git, git-lfs, gh, ssh, jq, yq, ripgrep, fd, sqlite3, make, htop, … | Debian (`apt`) |
@@ -346,6 +383,10 @@ Cross-platform notes:
 - **Docker Desktop file sharing.** No extra setup needed for your home directory or the project folder (both are
   shared by default). The build context excludes `.env`, `.env.mcp` and `.git` via `.dockerignore`.
 - **Default shell.** Use Git Bash or WSL2 on Windows; the examples assume a POSIX shell.
+- **DinD port range.** On Linux the worker port range binds to `127.0.0.1`. On macOS/Windows Docker Desktop,
+  `localhost` reaches the forwarded ports; other machines on the LAN generally do not. A range that is too large
+  slows Desktop startup, and a host port already in use aborts startup — adjust `DIND_PORT_START`/`DIND_PORT_END`.
+  Privileged DinD does not work with rootless Docker or Docker Desktop Enhanced Container Isolation.
 
 ## Is it safe?
 
@@ -354,14 +395,16 @@ sudo and no system package manager at runtime. Read the details in
 [Design decisions & rationale](#design-decisions--rationale).
 
 - **Minimal kernel privileges.** Capabilities are dropped to the few needed for the root-to-agent transition, and
-  `no-new-privileges: true` is set on every Compose service. MCP servers spawned by the gateway get only
-  `no-new-privileges` — see [MCP servers](#mcp-servers).
-- **No Docker socket in the agent.** The MCP gateway owns the socket as its control plane; it is unauthenticated and
-  reachable from this machine and from sibling containers, so treat gateway access as host-level access.
+  `no-new-privileges: true` is set on every Compose service except the privileged [DinD daemon](#docker-in-docker-dind).
+  MCP servers spawned by the gateway get only `no-new-privileges` — see [MCP servers](#mcp-servers).
+- **No host Docker socket in the agent.** The MCP gateway owns the host socket as its control plane; it is
+  unauthenticated and reachable from this machine and from sibling containers, so treat gateway access as host-level
+  access. The agent's `docker` commands go to a [separate DinD daemon](#docker-in-docker-dind) instead.
 - **SSH keys stay host-owned.** No private key is copied into the container's writable filesystem; the in-container
   agent loads them from a read-only mount. On Linux the mounted keys remain readable by the same UID — use a
   dedicated deploy key if that matters.
-- **Loopback only.** Published ports bind to `127.0.0.1`; Postgres and SearXNG have no host port.
+- **Loopback only.** Published ports, including the DinD port range, bind to `127.0.0.1`; Postgres and SearXNG have no
+  host port.
 - **Resource limits.** OpenCode: 4,096 processes and 8 GB of memory; smaller limits on the other services.
 - **Minimal secret exposure.** Only agent-specific variables pass into the agent container. Keep `.env` and
   `.env.mcp` at mode `600` — container isolation is only part of the story.
@@ -372,6 +415,7 @@ sudo and no system package manager at runtime. Read the details in
 What this doesn't cover:
 
 - **Network:** the container can reach the internet, your local network, and host services listening on all interfaces.
+  Containers on DinD are only reachable from the host through the forwarded loopback port range.
 - **Kernel:** containers share the host kernel, so a kernel bug could allow an escape.
 - **Secrets:** the agent can use any keys or tokens you pass in.
 - **Supply chain:** the background `npx skills update -g -y` executes third-party code on every start. It runs
@@ -383,6 +427,24 @@ to use [gVisor](https://gvisor.dev).
 
 If you pass the agent credentials, treat what it can do with them as what you can do — it will generally act only
 when you ask, but it can, for example, create branches and PRs on repositories its GitHub token can reach.
+
+## Docker in Docker (DinD)
+
+The agent gets a dedicated Docker daemon rather than the host socket, so `docker build`, test containers and throwaway
+services stay off your host Docker. The host socket remains mounted read-only in the MCP gateway only — that gateway is
+still host-level access, so this is a separation of concerns, not a new security boundary.
+
+- The `docker` service uses `docker:dind` with TLS disabled on an internal-only network (`docker-net`) that the
+  gateway's spawned containers cannot join. Its daemon port `2375` is never published to your host.
+- The agent's `docker` CLI is a static binary copied from `docker:cli` at build time, with the `buildx` and `compose`
+  plugins. `DOCKER_HOST` is set by Compose and stripped from the background skills refresh.
+- Images and containers you build live in the `dind-data` volume and survive restarts and `make clean`; only `down -v`
+  removes them.
+- Ports published inside DinD are host-reachable only in the configured range — see
+  [Publishing container ports to the host](#publishing-container-ports-to-the-host).
+- DinD is privileged and effectively host-root-equivalent. It does not run under rootless Docker or Docker Desktop
+  Enhanced Container Isolation, and large published ranges slow Desktop startups.
+- A healthcheck (`docker info`) gates startup, so `docker` works on the agent's first call.
 
 ## Design decisions & rationale
 
@@ -420,6 +482,13 @@ changes.
   secrets in `.env.mcp`; `gateway-config.json` enables the gateway's `tool-name-prefix` feature so `dockerhub`'s
   `search` tool does not collide with `duckduckgo`'s. `cloudflare-docs` bypasses the catalog because its SSE endpoint
   returns 410. *(docker-compose.opencode.yml, mcp-config.yml, gateway-config.json, opencode.json)*
+
+- **Docker in Docker.** The agent gets a dedicated daemon so its builds and test containers cannot mount or control the
+  host directly. The host socket stays in the gateway, which remains host-level access; the DinD daemon is privileged
+  and host-root-equivalent too, so this is about keeping the two tool sets separate, not about sandboxing. An internal
+  `docker-net` keeps gateway-spawned MCP containers away from the unauthenticated `2375` endpoint, and the daemon is
+  never published to the host. The port range and its matching `--sysctl ip_local_port_range` make both `-p` and `-P`
+  host-reachable without a static per-port entry. *(docker-compose.opencode.yml, Dockerfile, entrypoint.sh)*
 
 - **System config readability.** The Dockerfile makes `/etc/opencode` traversable so the `opencode` user can read the
   system config; otherwise OpenCode silently ignores it and reports no MCP servers. *(Dockerfile)*
@@ -512,9 +581,10 @@ servers, use `/mcps`. Supabase and Neon are configured read-only; keep those fla
 Security notes:
 - Ports publish on `127.0.0.1` only; the agent talks to `mcp-gateway` on the internal compose network. The host port
   defaults to 8200 (`MCP_GATEWAY_PORT` in `.env`); the internal 8080 is fixed. The gateway has no authentication and
-  holds the Docker socket — any process on this machine or in this compose project can reach it: treat that as
-  host-level access. n8n shares the compose network, so an n8n workflow is effectively host-level too; keep n8n access
-  as trusted as the gateway.
+  holds the host Docker socket — any process on this machine or in this compose project can reach it: treat that as
+  host-level access. The agent's own Docker commands go to its DinD daemon instead and never see this socket. n8n
+  shares the compose network, so an n8n workflow is effectively host-level too; keep n8n access as trusted as the
+  gateway.
 - The gateway spawns MCP containers on the same Compose network with `no-new-privileges` but without the Compose
   services' `cap_drop: ALL`. `mcp-code-interpreter` runs arbitrary Python as root inside its container with network
   access; `mcp/n8n` with a full API key can create workflows that execute code. Only enable what you use.
@@ -536,8 +606,9 @@ curl -s http://127.0.0.1:8200/mcp -X POST \
 ## n8n, PostgreSQL, and SearXNG
 
 `docker-compose.n8n.yml` adds a second, self-contained stack to the same compose project. It is part
-of `make run` / `make down` and uses the same internal network as OpenCode. Only n8n's editor is
-published on the host (`127.0.0.1:5678`); Postgres and SearXNG have no host ports. The `mcp/n8n` catalog server points
+of `make run` / `make down` and uses the same internal network as OpenCode. n8n's editor
+(`127.0.0.1:5678`) and the DinD port range are the published host ports; Postgres and SearXNG have none. The
+`mcp/n8n` catalog server points
 at `http://n8n:5678`; some upstream n8n-MCP builds reject private/loopback URLs unless webhook security is set to
 `permissive` — that setting is not exposed by the Docker catalog, so live API tools may fail with a private URL.
 The offline node/template tools work regardless.
@@ -674,6 +745,15 @@ port clash.
 The web UI port is fixed at 4000; free that port or change the mapping in `docker-compose.opencode.yml`, then recreate
 (`make run`).
 
+**A port from a container the agent started isn't reachable from my host.**
+Containers on DinD publish on the DinD container first. Ports in `DIND_PORT_START`–`DIND_PORT_END` (default
+31000–31099) are forwarded from `127.0.0.1` automatically: use `-p 31000:80`, and `docker port <name>` to see which
+port `-P` chose. For any other port, add a loopback `ports:` mapping to the `docker` service and recreate — see
+[Publishing container ports to the host](#publishing-container-ports-to-the-host).
+
+**`docker` inside the agent doesn't see my host containers.**
+Expected: the agent uses a separate DinD daemon. Ask the user before attempting to reach the host socket.
+
 **I forgot my password.**
 Unset `OPENCODE_PASSWORD` in `.env`, recreate, and read the new one from the logs:
 `docker compose -f docker-compose.opencode.yml logs opencode | grep "server password"`.
@@ -725,6 +805,9 @@ deletes your sessions and workspace.** Back up first.
   work but is untested.
 - Debian's `gh` is older than upstream; `yq` is the jq-syntax tool (kislyuk/yq), not mikefarah/yq.
 - There is no `sudo` or `apt` at runtime; packages you need must be added to `PACKAGES` and the image rebuilt.
+- DinD needs a privileged container and is unavailable under rootless Docker or Docker Desktop Enhanced Container
+  Isolation. `-P` only forwards ports inside the configured DinD range; use an explicit `-p` for fixed ports outside
+  it. A very large forwarded range slows Desktop startup.
 - `docker compose exec` opens a root shell; add `-u opencode` to act as the agent.
 - Only the standard key names (`id_ed25519`, `id_rsa`, `id_ecdsa`, `identity`) are loaded into the agent automatically.
   For a custom-named key, add it yourself after starting the stack:

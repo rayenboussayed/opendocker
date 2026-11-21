@@ -48,6 +48,11 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   the gateway now runs 19 servers and roughly 264 tools.
 - `mcp-config.yml` holds non-secret catalog config (`n8n.api_url`), mounted read-only into the gateway.
   `.env.mcp.example` documents the optional Grafana, Docker Hub and n8n secret keys.
+- A dedicated DinD daemon (`docker:dind`) for the agent's builds and test containers, with a Docker CLI and
+  `buildx`/`compose` plugins copied from `docker:cli`. Ports in `DIND_PORT_START`–`DIND_PORT_END` (default
+  31000–31099) are forwarded from `127.0.0.1`; the daemon's ephemeral range is constrained to the same ports so
+  `docker run -P` is host-reachable too. A `DinD` section in README and AGENTS.md documents port publishing.
+- `DOCKER_CLI_TAG`, `DIND_PORT_START` and `DIND_PORT_END` build/runtime settings in `.env.example`.
 
 ### Changed
 
@@ -111,6 +116,9 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   `docker compose` commands in the docs now carry both `-f` flags.
 - `HOST_HOME` drift: the `~/.ssh` and `~/.gitconfig` bind mounts now use the same `HOST_HOME`/`HOME`/`USERPROFILE`
   fallback as the container env, so an explicit override resolves host keys from the intended directory.
+- File uploads in the web UI returned HTTP 500 because OpenCode writes temp files to `/tmp/opencode`, which the base
+  image created as root-owned; the Dockerfile now creates it as `opencode:opencode`. `~/.config/opencode/skills` is
+  chowned for the same reason so skill installs are writable by the agent.
 
 ### Security
 
@@ -138,6 +146,9 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   standard SSH key names are auto-loaded into the agent — custom-named keys need an explicit `ssh-add`. Neither
   behavior changed in this refactor.
 - `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
+- DinD is privileged and host-root-equivalent: it lives on an internal `docker-net` that gateway-spawned MCP
+  containers cannot join, its unauthenticated `2375` port is never published to the host, and its forwarded port range
+  is loopback-bound. `DOCKER_HOST` is stripped from the background skills refresh.
 - MCP endpoints are unauthenticated but bind to loopback only; direct remote endpoints enabled by default send
   queries to Grep/grep.app, Cloudflare Docs, Context7, DeepWiki and Microsoft Learn [ed5290f] [0e74b9e].
 

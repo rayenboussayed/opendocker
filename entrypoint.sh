@@ -137,7 +137,7 @@ configure_git() {
 refresh_skills_snapshot() {
   local repo="$H/.agents" msg
   env -u GH_TOKEN -u GITHUB_TOKEN -u OPENCODE_API_KEY -u OPENCODE_PASSWORD \
-    -u POSTHOG_PERSONAL_API_KEY npx -y skills update -g -y \
+    -u POSTHOG_PERSONAL_API_KEY -u DOCKER_HOST npx -y skills update -g -y \
     || { log "WARNING: skills update failed - keeping the previous snapshot"; return 0; }
   mkdir -p "$repo" || { log "WARNING: cannot create $repo"; return 0; }
   [ -d "$repo/.git" ] || git -C "$repo" init -q || { log "WARNING: could not init skills git repo"; return 0; }
@@ -152,7 +152,7 @@ refresh_skills_snapshot() {
 }
 
 if [ "$(id -u)" = 0 ]; then
-  for d in .agents .config .config/opencode .local .local/share .local/share/opencode .local/state .cache workspace; do
+  for d in .agents .config .config/opencode .config/opencode/skills .local .local/share .local/share/opencode .local/state .cache workspace; do
     [ -d "$H/$d" ] || continue
     [ "$(stat -c %u "$H/$d")" = "$UID_N" ] || chown -R "$UID_N:$GID_N" "$H/$d"
   done

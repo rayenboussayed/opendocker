@@ -1,4 +1,7 @@
 ARG NODE_TAG=slim
+ARG DOCKER_CLI_TAG=29-cli
+FROM docker:${DOCKER_CLI_TAG} AS docker-cli
+
 FROM platformatic/node-caged:${NODE_TAG}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -28,15 +31,18 @@ RUN mkdir -p /opt/opencode-base-skills/find-skills \
        -o /opt/opencode-base-skills/find-skills/SKILL.md \
   && chmod -R a+rX /opt/opencode-base-skills \
   && useradd -m -u 1000 -U -s /bin/bash opencode \
-  && mkdir -p /home/opencode/{.ssh,.config/opencode,.local/share/opencode,.local/bin,.cache,workspace} \
+  && mkdir -p /home/opencode/{.ssh,.config/opencode/skills,.local/share/opencode,.local/bin,.cache,workspace} \
   && chmod 700 /home/opencode/.ssh \
   && mkdir -p /etc/opencode && chmod 755 /etc/opencode \
-  && chown -R opencode:opencode /home/opencode
+  && chown -R opencode:opencode /home/opencode \
+  && mkdir -p /tmp/opencode && chown opencode:opencode /tmp/opencode
 
 COPY --chmod=0644 ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0644 ssh_config /etc/ssh/ssh_config.d/50-opencode.conf
 COPY --chmod=0644 AGENTS.md opencode.json /etc/opencode/
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
+COPY --from=docker-cli --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli --chmod=0755 /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
 
 ENV LANG=C.UTF-8 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \

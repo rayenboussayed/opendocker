@@ -29,10 +29,33 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  docker:
+    image: docker:dind
+    privileged: true
+    sysctls:
+      net.ipv4.ip_local_port_range: "${DIND_PORT_START:-31000} ${DIND_PORT_END:-31099}"
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - dind-data:/var/lib/docker
+    ports:
+      - "127.0.0.1:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}:${DIND_PORT_START:-31000}-${DIND_PORT_END:-31099}"
+    networks:
+      - docker-net
+    mem_limit: 4g
+    pids_limit: 4096
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
   opencode:
     build:
       context: .
-      args: [NODE_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES, SKILLS_REF]
+      args: [NODE_TAG, DOCKER_CLI_TAG, PACKAGES, NPM_PACKAGES, PIP_PACKAGES, SKILLS_REF]
     environment:
       - HOST_HOME=${HOST_HOME:-${HOME:-${USERPROFILE:-/home/opencode}}}
       - OPENCODE_PASSWORD=${OPENCODE_PASSWORD:-}
@@ -44,6 +67,7 @@ services:
       - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
       - SSH_AUTH_SOCK=/home/opencode/.ssh/agent/agent.sock
       - MCP_GATEWAY_URL=http://mcp-gateway:8080/mcp
+      - DOCKER_HOST=tcp://docker:2375
       - EXA_API_KEY=${EXA_API_KEY:-}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
       - PARALLEL_API_KEY=${PARALLEL_API_KEY:-}
@@ -53,7 +77,13 @@ services:
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:
-      - mcp-gateway
+      mcp-gateway:
+        condition: service_started
+      docker:
+        condition: service_healthy
+    networks:
+      - default
+      - docker-net
     volumes:
       - opencode-config:/home/opencode/.config/opencode
       - opencode-data:/home/opencode/.local/share/opencode
@@ -87,3 +117,8 @@ volumes:
   opencode-workspace:
   opencode-cache:
   opencode-global-skills:
+  dind-data:
+
+networks:
+  docker-net:
+    driver: bridge

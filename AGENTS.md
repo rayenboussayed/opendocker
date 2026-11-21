@@ -6,17 +6,19 @@ Git transport uses SSH; GitHub operations use `gh`. Both are preconfigured — r
 
 ## Additional services
 
-`make run` starts five containers: OpenCode (agent and web UI on port 4000), the Docker MCP gateway (host port
-`MCP_GATEWAY_PORT`, default 8200), **n8n** (workflow editor on port 5678), its **Postgres** database, and a private
-**SearXNG** search backend. OpenCode, the gateway and n8n publish on `127.0.0.1`; Postgres and SearXNG are reachable
-only over the internal compose network. OpenCode and the gateway share `docker-compose.opencode.yml` (with
-`opencode` depending on `mcp-gateway`), while n8n, Postgres and SearXNG live in `docker-compose.n8n.yml`. The code
-files are intentionally comment-light — put "why" notes in the repo's `README.md`, in its design-decisions section,
-not back into the code.
+`make run` starts six containers: OpenCode (agent and web UI on port 4000), the Docker MCP gateway (host port
+`MCP_GATEWAY_PORT`, default 8200), **n8n** (workflow editor on port 5678), its **Postgres** database, a private
+**SearXNG** search backend, and a dedicated **Docker daemon (DinD)** for the agent's own builds and test containers.
+OpenCode, the gateway, n8n and the DinD port range publish on `127.0.0.1`; Postgres and SearXNG are reachable only
+over the internal compose network. OpenCode and the gateway share `docker-compose.opencode.yml` (with `opencode`
+depending on `mcp-gateway` and on the DinD service becoming healthy), while n8n, Postgres and SearXNG live in
+`docker-compose.n8n.yml`. The code files are intentionally comment-light — put "why" notes in the repo's `README.md`,
+in its design-decisions section, not back into the code.
 
 The `opencode` service passes an explicit `environment:` allowlist and never `env_file: .env`; n8n/Postgres/SearXNG
-secrets must never enter the agent container. OpenCode is limited to 4,096 processes / 8 GB memory, the gateway to
-4 GB, n8n to 2 GB, and Postgres/SearXNG to 1 GB; all services drop capabilities and set `no-new-privileges: true`.
+secrets must never enter the agent container. OpenCode is limited to 4,096 processes / 8 GB memory, the gateway and
+the DinD daemon to 4 GB each, n8n to 2 GB, and Postgres/SearXNG to 1 GB. Every service except the privileged DinD
+daemon drops capabilities and sets `no-new-privileges: true`.
 
 The Dockerfile copies `AGENTS.md` and `opencode.json` to `/etc/opencode/`, chmods that directory to 755 so the
 `opencode` user can read it, and `opencode.json` loads `/etc/opencode/AGENTS.md`; keep those paths in sync if either file
@@ -30,6 +32,28 @@ moves. `gateway-config.json` enables the gateway's `tool-name-prefix` feature to
 - SearXNG is at `http://searxng:8080`. JSON results require the `search.formats` override in
   `searxng-settings.yml`. It backs n8n Assistant web search and can be queried directly from an
   n8n HTTP Request node.
+
+## Docker in Docker (DinD)
+
+A dedicated Docker daemon (the `docker` service in `docker-compose.opencode.yml`) runs inside this Compose project.
+The agent's `docker` CLI talks to **that** daemon (`DOCKER_HOST=tcp://docker:2375`), not to the host's Docker socket —
+the host socket stays mounted read-only in the MCP gateway only. Containers you start live on DinD's own bridge:
+they cannot resolve Compose service names (`opencode`, `mcp-gateway`, `n8n`) and are **not** the host's other containers.
+Reach Compose services through published ports or the MCP gateway instead.
+
+- Use `docker` freely for builds, test containers and throwaway services. The `buildx` and `compose` CLI plugins are
+  installed alongside the CLI.
+- DinD state persists in the `dind-data` volume: images and containers you build survive restarts and `make clean`;
+  only `down -v` removes them.
+- **Port publishing.** An inner `docker run -p HOST:CONTAINER ...` publishes on the DinD container. Ports in
+  `DIND_PORT_START`–`DIND_PORT_END` (default 31000–31099) are forwarded from `127.0.0.1` on the host automatically:
+  use `-p 31000:80`, then open `http://localhost:31000` on the host. `docker run -P` uses that same constrained
+  range; find the chosen port with `docker port <container>` (`-P` publishes nothing for images without `EXPOSE`).
+- To expose a port outside that range, ask the user to add a loopback `ports:` mapping to the `docker` service and
+  recreate the stack. Do not edit Compose files unprompted.
+- Never set `DOCKER_HOST` to the host socket. If a task truly needs the host daemon, ask the user.
+- DinD is a privileged container and is host-root-equivalent; treat anything you do there as privileged. It is
+  unavailable under rootless Docker or Docker Desktop Enhanced Container Isolation.
 
 ## Before you start working
 
@@ -465,8 +489,8 @@ live. Without it, symlinks break; recreate after restoring the mount.
 A: In order: `ssh-add -l` → `ssh -T git@github.com` → `ls -l ~/.ssh` (public files) → `git config --list --show-origin` →
 `git log --show-signature -1`. If you need the startup log (how the entrypoint resolved identity and signing, plus any
 warnings), ask the user to run `docker compose -f docker-compose.opencode.yml logs opencode | grep entrypoint` —
-inside the container you have no Docker CLI. For MCP status run `opencode mcp list` yourself from `~/workspace`;
-ask the user only if you cannot.
+your `docker` CLI targets the DinD daemon, not the host, so host Compose logs still need the user's shell. For MCP
+status run `opencode mcp list` yourself from `~/workspace`; ask the user only if you cannot.
 
 ## Ask the user first
 
@@ -476,6 +500,7 @@ ask the user only if you cannot.
 - Changing git identity, signing configuration or anything in `.env`
 - Making any repository public/private, changing tokens or scopes
 - Changing `opencode.json` skills sources or compose volume mounts (skill storage layout)
+- Publishing new host ports or changing the DinD daemon configuration
 
 ## Never
 
@@ -504,11 +529,12 @@ captures it at startup). `mcp-config.yml` holds non-secret config values (curren
 are silently ignored. The n8n API key has no CLI/env generator — it is created in n8n's Settings → n8n API UI.
 
 Tools are hidden by Code Mode: `opencode mcp list` shows connection status, and inside the agent `execute` →
-`search({ namespace: "..." })` discovers them. The gateway has no authentication and holds the Docker socket as its
-control plane; it is published on loopback and reachable from every container in this project — treat access as
-host-level. Spawned MCP containers share the Compose network but do not inherit the Compose services' `cap_drop: ALL`,
-so consider them additional network peers. If the gateway shows as disconnected, ask the user to start it (`make run`,
-or `docker compose -f docker-compose.opencode.yml up -d mcp-gateway`) rather than editing configuration.
+`search({ namespace: "..." })` discovers them. The gateway has no authentication and holds the **host** Docker socket
+as its control plane; it is published on loopback and reachable from every container in this project — treat access as
+host-level. The agent's own Docker commands go to DinD instead and never see that socket. Spawned MCP containers share
+the Compose network but do not inherit the Compose services' `cap_drop: ALL`, so consider them additional network
+peers. If the gateway shows as disconnected, ask the user to start it (`make run`, or
+`docker compose -f docker-compose.opencode.yml up -d mcp-gateway`) rather than editing configuration.
 
 `.env.mcp` is not passed to OpenCode and must not contain application secrets such as `OPENCODE_API_KEY`. GitHub Official
 can write to repositories the token can reach, and agent permissions are allow-all, so do not issue broader GitHub
@@ -517,6 +543,11 @@ tokens than needed.
 ## Network
 
 - Internet access is available.
-- The web UI is published on a single port (default 4000). Services you start (dev servers, databases) are not
-  reachable from elsewhere unless that port is published. If the user wants something reachable, tell them they need
-  to publish the port; you cannot do it yourself.
+- The web UI is published on loopback (default 4000). Pre-existing Compose services reach each other by service name.
+- Containers you start on DinD are **not** automatically reachable from the host. Ports in the configured
+  `DIND_PORT_START`–`DIND_PORT_END` range are forwarded from `127.0.0.1` by Compose; use `-p 31000:80` and the host can
+  open `http://localhost:31000`. `-P` works too because dind's ephemeral range is constrained to the same ports
+  (`docker port <container>` shows the choice).
+- For a port outside that range, ask the user to add a loopback `ports:` mapping to the `docker` service and recreate.
+  Do not edit Compose files unprompted. Other Compose services reach your container by service/container name, not
+  `localhost`.
