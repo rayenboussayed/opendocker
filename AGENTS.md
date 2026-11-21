@@ -39,7 +39,8 @@ A dedicated Docker daemon (the `docker` service in `docker-compose.opencode.yml`
 The agent's `docker` CLI talks to **that** daemon (`DOCKER_HOST=tcp://docker:2375`), not to the host's Docker socket —
 the host socket stays mounted read-only in the MCP gateway only. Containers you start live on DinD's own bridge:
 they cannot resolve Compose service names (`opencode`, `mcp-gateway`, `n8n`) and are **not** the host's other containers.
-Reach Compose services through published ports or the MCP gateway instead.
+From the agent itself, reach Compose services by their service names on the Compose network; containers you start on
+DinD cannot reach the host's `127.0.0.1`-published ports.
 
 - Use `docker` freely for builds, test containers and throwaway services. The `buildx` and `compose` CLI plugins are
   installed alongside the CLI.
@@ -49,6 +50,8 @@ Reach Compose services through published ports or the MCP gateway instead.
   `DIND_PORT_START`–`DIND_PORT_END` (default 31000–31099) are forwarded from `127.0.0.1` on the host automatically:
   use `-p 31000:80`, then open `http://localhost:31000` on the host. `docker run -P` uses that same constrained
   range; find the chosen port with `docker port <container>` (`-P` publishes nothing for images without `EXPOSE`).
+  The constraint also limits outbound source ports from DinD, so many concurrent pulls/builds can exhaust it — ask the
+  user to widen the range if you see "Cannot assign requested address".
 - To expose a port outside that range, ask the user to add a loopback `ports:` mapping to the `docker` service and
   recreate the stack. Do not edit Compose files unprompted.
 - Never set `DOCKER_HOST` to the host socket. If a task truly needs the host daemon, ask the user.

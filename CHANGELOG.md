@@ -116,14 +116,15 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   `docker compose` commands in the docs now carry both `-f` flags.
 - `HOST_HOME` drift: the `~/.ssh` and `~/.gitconfig` bind mounts now use the same `HOST_HOME`/`HOME`/`USERPROFILE`
   fallback as the container env, so an explicit override resolves host keys from the intended directory.
-- File uploads in the web UI returned HTTP 500 because OpenCode writes temp files to `/tmp/opencode`, which the base
-  image created as root-owned; the Dockerfile now creates it as `opencode:opencode`. `~/.config/opencode/skills` is
-  chowned for the same reason so skill installs are writable by the agent.
+- File uploads in the web UI returned HTTP 500 because OpenCode writes temp files to `/tmp/opencode`, which the image
+  build created as root-owned during the OpenCode CLI install; the Dockerfile now creates it as `opencode:opencode`.
+  `~/.config/opencode/skills` is chowned at build and at startup so skill installs are writable by the agent.
 
 ### Security
 
-- OpenCode has no sudo or system package manager at runtime; `no-new-privileges: true` is set on every service, and its
-  capability set is limited to what the startup drop to the agent user requires [6b3bc43].
+- OpenCode has no sudo or system package manager at runtime; `no-new-privileges: true` is set on every service except
+  the privileged DinD daemon, and its capability set is limited to what the startup drop to the agent user requires
+  [6b3bc43].
 - Private SSH keys are loaded from the read-only host mount straight into an in-container `ssh-agent`; a key supplied
   via `SSH_PRIVATE_KEY` is piped in on stdin, so no private-key file is created. Git transport and SSH signing work
   through the agent [6b3bc43].
@@ -131,7 +132,7 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   secrets never enter the agent container [6b3bc43].
 - The automatic skills refresh runs without `GH_TOKEN`, `OPENCODE_API_KEY`, `OPENCODE_PASSWORD` or the PostHog key;
   it keeps the SSH agent only to sign its local snapshot commit. The docs now state plainly that mounted host keys
-  remain readable by the same UID and that the unauthenticated MCP gateway holds the Docker socket.
+  remain readable by the same UID and that the unauthenticated MCP gateway holds the host Docker socket.
 - The gateway runs with `cap_drop: [ALL]`, a 4 GB memory limit and publishes on `127.0.0.1` only; the Docker
   socket is mounted into the gateway (its control plane) and never into the OpenCode container [91bd0de]
   [0e74b9e] [946ab2d].
@@ -147,8 +148,9 @@ release, rename that section to `[x.y.z] - YYYY-MM-DD`, tag the commit, and add 
   behavior changed in this refactor.
 - `.env.mcp` is gitignored and Docker-ignored, must remain chmod 600, and is never passed to OpenCode [946ab2d].
 - DinD is privileged and host-root-equivalent: it lives on an internal `docker-net` that gateway-spawned MCP
-  containers cannot join, its unauthenticated `2375` port is never published to the host, and its forwarded port range
-  is loopback-bound. `DOCKER_HOST` is stripped from the background skills refresh.
+  containers are not attached to by default (a process with host-socket access could join it explicitly), its
+  unauthenticated `2375` port is never published to the host, and its forwarded port range is loopback-bound.
+  `DOCKER_HOST` is stripped from the background skills refresh.
 - MCP endpoints are unauthenticated but bind to loopback only; direct remote endpoints enabled by default send
   queries to Grep/grep.app, Cloudflare Docs, Context7, DeepWiki and Microsoft Learn [ed5290f] [0e74b9e].
 

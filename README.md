@@ -435,13 +435,16 @@ services stay off your host Docker. The host socket remains mounted read-only in
 still host-level access, so this is a separation of concerns, not a new security boundary.
 
 - The `docker` service uses `docker:dind` with TLS disabled on an internal-only network (`docker-net`) that the
-  gateway's spawned containers cannot join. Its daemon port `2375` is never published to your host.
+  gateway's spawned containers are not attached to by default (host-socket access could join it explicitly). Its
+  daemon port `2375` is never published to your host.
 - The agent's `docker` CLI is a static binary copied from `docker:cli` at build time, with the `buildx` and `compose`
   plugins. `DOCKER_HOST` is set by Compose and stripped from the background skills refresh.
 - Images and containers you build live in the `dind-data` volume and survive restarts and `make clean`; only `down -v`
   removes them.
 - Ports published inside DinD are host-reachable only in the configured range — see
-  [Publishing container ports to the host](#publishing-container-ports-to-the-host).
+  [Publishing container ports to the host](#publishing-container-ports-to-the-host). That range also caps DinD's
+  outbound source ports, so heavy concurrent pulls/builds can exhaust it; widen it if you see "Cannot assign requested
+  address".
 - DinD is privileged and effectively host-root-equivalent. It does not run under rootless Docker or Docker Desktop
   Enhanced Container Isolation, and large published ranges slow Desktop startups.
 - A healthcheck (`docker info`) gates startup, so `docker` works on the agent's first call.
@@ -486,9 +489,11 @@ changes.
 - **Docker in Docker.** The agent gets a dedicated daemon so its builds and test containers cannot mount or control the
   host directly. The host socket stays in the gateway, which remains host-level access; the DinD daemon is privileged
   and host-root-equivalent too, so this is about keeping the two tool sets separate, not about sandboxing. An internal
-  `docker-net` keeps gateway-spawned MCP containers away from the unauthenticated `2375` endpoint, and the daemon is
-  never published to the host. The port range and its matching `--sysctl ip_local_port_range` make both `-p` and `-P`
-  host-reachable without a static per-port entry. *(docker-compose.opencode.yml, Dockerfile, entrypoint.sh)*
+  `docker-net` leaves gateway-spawned MCP containers unattached by default, and the daemon is never published to the
+  host. The port range and its matching `net.ipv4.ip_local_port_range` sysctl make both `-p` and `-P` host-reachable
+  without a static per-port entry. That sysctl also caps outbound source ports from DinD at the range size, so heavy
+  concurrent pulls/builds can exhaust it; widen the range if you hit "Cannot assign requested address" (at the cost of
+  slower Desktop startup). *(docker-compose.opencode.yml, Dockerfile, entrypoint.sh)*
 
 - **System config readability.** The Dockerfile makes `/etc/opencode` traversable so the `opencode` user can read the
   system config; otherwise OpenCode silently ignores it and reports no MCP servers. *(Dockerfile)*
