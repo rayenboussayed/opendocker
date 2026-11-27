@@ -27,7 +27,7 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    restart: unless-stopped
+    restart: no
 
   docker:
     image: docker:dind
@@ -50,7 +50,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    restart: unless-stopped
+    restart: no
 
   opencode:
     build:
@@ -103,7 +103,7 @@ services:
         hard: 65536
     pids_limit: 4096
     mem_limit: 8g
-    restart: unless-stopped
+    restart: no
 
 secrets:
   mcp_secrets:
